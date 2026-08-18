@@ -1,4 +1,4 @@
-import type { ServerContext, TraceListData, TraceRead } from "./types.js";
+import type { LookupData, ServerContext, TraceListData, TraceRead } from "./types.js";
 
 export type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -36,6 +36,10 @@ export class TracesApiClient {
     const read = data.reads?.[0];
     if (!read) throw new TracesApiError("The trace was not found or is not accessible.", 404);
     return read;
+  }
+
+  async lookup(input: Record<string, unknown>): Promise<LookupData> {
+    return this.post<LookupData>("/v1/tools/lookup", input);
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {

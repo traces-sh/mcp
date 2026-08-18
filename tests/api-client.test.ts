@@ -35,4 +35,27 @@ describe("TracesApiClient", () => {
 
     expect(client.list({})).rejects.toEqual(new TracesApiError("Access denied", 403));
   });
+
+  test("calls the authenticated lookup endpoint", async () => {
+    const fetchImpl = mock(async (_input: string | URL | Request, _init?: RequestInit) =>
+      Response.json({
+        ok: true,
+        data: {
+          kind: "user",
+          results: [],
+          ambiguous: false,
+          truncated: false,
+          text: "no user matches",
+        },
+      }),
+    );
+    const client = new TracesApiClient(context, fetchImpl);
+
+    await client.lookup({ kind: "user", id: "user-1" });
+
+    const [input, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(input).toBe("https://agent.traces.com/v1/tools/lookup");
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
+    expect(JSON.parse(String(init?.body))).toEqual({ kind: "user", id: "user-1" });
+  });
 });

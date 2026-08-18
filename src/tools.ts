@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { TracesApiClient, type Fetch } from "./api-client.js";
-import { formatTraceList, formatTraceRead } from "./format.js";
+import { formatLookup, formatTraceList, formatTraceRead } from "./format.js";
 import type { ServerContext } from "./types.js";
 
 export const searchInputSchema = {
+  namespaceIds: z.array(z.string().min(1)).optional().describe("Traces namespace IDs."),
   projectName: z.string().min(1).optional().describe("Exact project name."),
   projectPath: z.string().min(1).optional().describe("Project path prefix."),
   createdByUserIds: z.array(z.string().min(1)).optional().describe("Traces creator IDs."),
@@ -28,6 +29,29 @@ export const readInputSchema = {
   maxEventChars: z.number().int().min(100).max(10_000).optional(),
 };
 
+export const lookupInputSchema = {
+  kind: z.enum(["user", "namespace", "agent_creator"]).describe("Entity kind to resolve."),
+  query: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Case-insensitive display-name query. User queries require namespaceId."),
+  id: z.string().min(1).optional().describe("Exact entity ID. Use this to humanize an opaque ID."),
+  slug: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Exact slug. Valid for namespaces and registered agents, not users."),
+  namespaceId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Restrict users or registered agents to a visible namespace. By itself, enumerates that namespace.",
+    ),
+  limit: z.number().int().min(1).max(50).default(10).describe("Maximum matches to return."),
+};
+
 export function normalizeTraceId(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) throw new Error("traceId is required");
@@ -42,6 +66,7 @@ export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fe
   const api = new TracesApiClient(context, fetchImpl);
   return {
     search: async (input: Record<string, unknown>) => formatTraceList(await api.list(input)),
+    lookup: async (input: Record<string, unknown>) => formatLookup(await api.lookup(input)),
     read: async (input: {
       traceId: string;
       includeTools?: boolean;
