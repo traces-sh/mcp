@@ -35,7 +35,8 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
     "traces_search",
     {
       title: "Search Traces",
-      description: "List recent traces using deterministic metadata filters.",
+      description:
+        "List recent traces using deterministic metadata filters. Results normalize referenced authors once in a People table and use user slugs in trace rows.",
       inputSchema: searchInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -58,7 +59,7 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
     {
       title: "Lookup Traces Entities",
       description:
-        "Resolve a visible person, namespace, or registered agent into canonical IDs and human-readable metadata.",
+        "Resolve a visible person, namespace, or registered agent into canonical IDs and human-readable metadata. User name queries require namespaceId; global user and email lookup are unavailable.",
       inputSchema: lookupInputSchema,
       annotations: {
         readOnlyHint: true,
