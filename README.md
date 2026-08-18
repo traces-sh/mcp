@@ -144,6 +144,23 @@ Run `bunx @modelcontextprotocol/inspector`, choose **Streamable HTTP**, connect 
 `http://localhost:3001`, and complete the browser authorization flow. After approval, call
 `traces_search`, then pass one of its trace IDs to `traces_read`.
 
+## Container images
+
+GitHub Container Registry publishes multi-platform images for every merge to `main`
+and every release tag:
+
+```text
+ghcr.io/traces-sh/mcp:main
+ghcr.io/traces-sh/mcp:0.1.0
+ghcr.io/traces-sh/mcp@sha256:...
+```
+
+Use a release tag or digest for a pinned deployment. The image starts the HTTP
+transport on port `3001`; configure it with the hosted-development variables
+above. `main` is a moving candidate tag, not a production deployment pin. After
+the first publication, make the GitHub Container Registry package public so
+self-hosters can pull it.
+
 ## Security
 
 - Verify that clients connect to exactly `https://mcp.traces.com`.
