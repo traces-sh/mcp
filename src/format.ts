@@ -1,4 +1,11 @@
-import type { TraceEvent, TraceListData, TraceMetadata, TraceRead } from "./types.js";
+import type {
+  LookupData,
+  TraceAuthor,
+  TraceEvent,
+  TraceListData,
+  TraceMetadata,
+  TraceRead,
+} from "./types.js";
 
 function cell(value: unknown): string {
   if (value === undefined || value === null || value === "") return "-";
@@ -20,11 +27,83 @@ export function formatTraceList(data: TraceListData): string {
   ];
   if (data.traces.length === 0) return `${lines.join("\n")}No traces matched.`;
 
-  lines.push("| Time | Creator ID | Project | Agent | Status | Messages | Title | URL |");
+  const referencedAuthorIds = new Set(
+    data.traces.map((trace) => trace.createdBy).filter((id): id is string => Boolean(id)),
+  );
+  const suppliedAuthors = new Map(
+    (data.authors ?? [])
+      .filter((author) => referencedAuthorIds.has(author.id))
+      .map((author) => [author.id, author]),
+  );
+  const authors: TraceAuthor[] = [];
+  for (const trace of data.traces) {
+    if (!trace.createdBy) continue;
+    const author = suppliedAuthors.get(trace.createdBy);
+    if (author && !authors.some((item) => item.id === author.id)) authors.push(author);
+  }
+  const authorById = new Map(authors.map((author) => [author.id, author]));
+
+  if (authors.length > 0) {
+    lines.push("## People", "", "| User | Display name | User ID |", "|---|---|---|");
+    for (const author of authors) {
+      lines.push(
+        `| ${cell(author.slug ? `@${author.slug}` : undefined)} | ${cell(author.displayName)} | ${cell(author.id)} |`,
+      );
+    }
+    lines.push("");
+  }
+
+  lines.push("## Traces", "");
+  lines.push("| Time | User | Project | Agent | Status | Messages | Title | URL |");
   lines.push("|---|---|---|---|---|---:|---|---|");
   for (const trace of data.traces) {
+    const author = trace.createdBy ? authorById.get(trace.createdBy) : undefined;
+    const user = author?.slug ? `@${author.slug}` : trace.createdBy;
     lines.push(
-      `| ${timestamp(trace)} | ${cell(trace.createdBy)} | ${cell(trace.projectName)} | ${cell(trace.agentId)} | ${cell(trace.ai_analysis?.status)} | ${cell(trace.messageCount)} | ${cell(trace.title)} | ${cell(trace.url)} |`,
+      `| ${timestamp(trace)} | ${cell(user)} | ${cell(trace.projectName)} | ${cell(trace.agentId)} | ${cell(trace.ai_analysis?.status)} | ${cell(trace.messageCount)} | ${cell(trace.title)} | ${cell(trace.url)} |`,
+    );
+  }
+  return lines.join("\n");
+}
+
+export function formatLookup(data: LookupData): string {
+  const lines = [
+    `Found ${data.results.length} ${data.kind} match(es)${data.truncated ? "; more matches are available" : ""}.`,
+    ...(data.ambiguous
+      ? ["The result is ambiguous; ask the user to disambiguate before filtering."]
+      : []),
+    "",
+  ];
+  if (data.results.length === 0) return `${lines.join("\n")}No entities matched.`;
+
+  if (data.kind === "user") {
+    lines.push("| Display name | User | User ID | Visible namespaces |", "|---|---|---|---|");
+    for (const result of data.results) {
+      if (result.kind !== "user") continue;
+      const namespaces = result.namespaces.map((namespace) => `@${namespace.slug}`).join(", ");
+      lines.push(
+        `| ${cell(result.displayName)} | ${cell(result.slug ? `@${result.slug}` : undefined)} | ${cell(result.id)} | ${cell(namespaces)} |`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  if (data.kind === "namespace") {
+    lines.push("| Display name | Namespace | Namespace ID | Type |", "|---|---|---|---|");
+    for (const result of data.results) {
+      if (result.kind !== "namespace") continue;
+      lines.push(
+        `| ${cell(result.displayName)} | ${cell(`@${result.slug}`)} | ${cell(result.id)} | ${cell(result.type)} |`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  lines.push("| Name | Agent | Agent ID | Namespace |", "|---|---|---|---|");
+  for (const result of data.results) {
+    if (result.kind !== "agent_creator") continue;
+    lines.push(
+      `| ${cell(result.name)} | ${cell(`@${result.slug}`)} | ${cell(result.id)} | ${cell(`@${result.namespace.slug}`)} |`,
     );
   }
   return lines.join("\n");

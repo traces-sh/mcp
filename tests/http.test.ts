@@ -83,6 +83,32 @@ describe("HTTP transport", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.result.serverInfo.name).toBe("traces-mcp");
+    expect(body.result.instructions).toContain("traces_lookup");
+  });
+
+  test("advertises the lookup tool", async () => {
+    const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
+    const handler = createHttpHandler({ ...options, fetchImpl });
+    const response = await handler(
+      new Request("https://mcp.traces.com", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: "Bearer valid-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/list",
+          params: {},
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.result.tools.map((tool: { name: string }) => tool.name)).toContain("traces_lookup");
   });
 
   test("rejects an invalid token", async () => {
