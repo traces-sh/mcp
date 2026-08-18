@@ -3,6 +3,14 @@ import type { Fetch } from "./api-client.js";
 import { apiUrl, authorizationServer, publicUrl } from "./config.js";
 import { buildServer } from "./server.js";
 
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+  "access-control-allow-headers":
+    "Authorization, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, Last-Event-ID",
+  "access-control-expose-headers": "WWW-Authenticate, MCP-Session-Id",
+};
+
 function bearerToken(request: Request): string | undefined {
   const match = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i);
   return match?.[1]?.trim() || undefined;
@@ -17,17 +25,17 @@ function unauthorized(resourceUrl: string, description?: string): Response {
   ];
   return new Response("Authentication required", {
     status: 401,
-    headers: { "www-authenticate": attributes.join(", ") },
+    headers: { "www-authenticate": attributes.join(", "), ...CORS_HEADERS },
   });
 }
 
 async function validateToken(
   token: string,
-  baseApiUrl: string,
+  authorizationServer: string,
   fetchImpl: Fetch,
 ): Promise<"valid" | "invalid" | "unavailable"> {
   try {
-    const response = await fetchImpl(`${baseApiUrl}/v1/whoami`, {
+    const response = await fetchImpl(`${authorizationServer}/v1/session`, {
       headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(10_000),
     });
@@ -51,7 +59,7 @@ export function createHttpHandler(options: HttpHandlerOptions) {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
-      return Response.json({ ok: true, service: "traces-mcp" });
+      return Response.json({ ok: true, service: "traces-mcp" }, { headers: CORS_HEADERS });
     }
 
     if (url.pathname === "/.well-known/oauth-protected-resource") {
@@ -62,22 +70,28 @@ export function createHttpHandler(options: HttpHandlerOptions) {
           scopes_supported: ["traces:read"],
           bearer_methods_supported: ["header"],
         },
-        { headers: { "cache-control": "public, max-age=3600" } },
+        { headers: { "cache-control": "public, max-age=3600", ...CORS_HEADERS } },
       );
     }
 
     if (url.pathname !== "/" && url.pathname !== "/mcp") {
       return new Response("Not found", { status: 404 });
     }
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
 
     const token = bearerToken(request);
     if (!token) return unauthorized(options.publicUrl);
-    const validation = await validateToken(token, options.apiUrl, fetchImpl);
+    const validation = await validateToken(token, options.authorizationServer, fetchImpl);
     if (validation === "invalid") {
       return unauthorized(options.publicUrl, "The access token is invalid or expired");
     }
     if (validation === "unavailable") {
-      return new Response("Traces authentication is temporarily unavailable", { status: 503 });
+      return new Response("Traces authentication is temporarily unavailable", {
+        status: 503,
+        headers: CORS_HEADERS,
+      });
     }
 
     const server = buildServer(
@@ -93,7 +107,9 @@ export function createHttpHandler(options: HttpHandlerOptions) {
       enableJsonResponse: true,
     });
     await server.connect(transport);
-    return transport.handleRequest(request);
+    const response = await transport.handleRequest(request);
+    for (const [name, value] of Object.entries(CORS_HEADERS)) response.headers.set(name, value);
+    return response;
   };
 }
 

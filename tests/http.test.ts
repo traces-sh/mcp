@@ -3,7 +3,7 @@ import { createHttpHandler } from "../src/http.js";
 
 const options = {
   apiUrl: "https://agent.traces.com",
-  authorizationServer: "https://traces.com",
+  authorizationServer: "https://auth.traces.com",
   publicUrl: "https://mcp.traces.com",
 };
 
@@ -14,9 +14,10 @@ describe("HTTP transport", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
     expect(await response.json()).toEqual({
       resource: "https://mcp.traces.com",
-      authorization_servers: ["https://traces.com"],
+      authorization_servers: ["https://auth.traces.com"],
       scopes_supported: ["traces:read"],
       bearer_methods_supported: ["header"],
     });
@@ -31,10 +32,32 @@ describe("HTTP transport", () => {
     expect(response.headers.get("www-authenticate")).toContain(
       'resource_metadata="https://mcp.traces.com/.well-known/oauth-protected-resource"',
     );
+    expect(response.headers.get("access-control-expose-headers")).toContain("WWW-Authenticate");
+  });
+
+  test("allows browser clients to preflight MCP requests", async () => {
+    const response = await createHttpHandler(options)(
+      new Request("https://mcp.traces.com", {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://client.example",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "authorization,content-type",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-headers")).toContain("Authorization");
   });
 
   test("serves an authenticated MCP initialization", async () => {
-    const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
+    const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe("https://auth.traces.com/v1/session");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer valid-token");
+      return Response.json({ ok: true, data: {} });
+    });
     const handler = createHttpHandler({ ...options, fetchImpl });
     const response = await handler(
       new Request("https://mcp.traces.com", {

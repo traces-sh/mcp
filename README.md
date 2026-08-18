@@ -113,6 +113,37 @@ The HTTP transport publishes OAuth protected-resource metadata and validates bea
 against the Traces API. A complete hosted login also requires the authorization-server endpoints
 implemented by the Traces API.
 
+| Variable | Purpose |
+|---|---|
+| `TRACES_API_URL` | Agent API origin used for `traces_search` and `traces_read` |
+| `MCP_PUBLIC_URL` | Public origin of this MCP server |
+| `MCP_AUTHORIZATION_SERVER` | OAuth server origin used for discovery and token validation |
+| `PORT` | HTTP listen port |
+
+### Local OAuth end to end
+
+Run the Traces API, frontend, and agent service locally, then configure the Convex deployment:
+
+```bash
+cd api
+bunx convex env set MCP_OAUTH_ISSUER "http://localhost:3211"
+bunx convex env set MCP_RESOURCE_URL "http://localhost:3001"
+bunx convex env set TRACES_URL "http://localhost:3000"
+```
+
+Start this MCP server in another terminal:
+
+```bash
+TRACES_API_URL=http://localhost:3220 \
+MCP_PUBLIC_URL=http://localhost:3001 \
+MCP_AUTHORIZATION_SERVER=http://localhost:3211 \
+bun run dev:http
+```
+
+Run `bunx @modelcontextprotocol/inspector`, choose **Streamable HTTP**, connect to
+`http://localhost:3001`, and complete the browser authorization flow. After approval, call
+`traces_search`, then pass one of its trace IDs to `traces_read`.
+
 ## Security
 
 - Verify that clients connect to exactly `https://mcp.traces.com`.
