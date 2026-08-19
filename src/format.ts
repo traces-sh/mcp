@@ -13,7 +13,7 @@ function cell(value: unknown): string {
 }
 
 function timestamp(trace: TraceMetadata): string {
-  const value = trace.updatedAt ?? trace.createdAt;
+  const value = trace.sourceCreatedAt ?? trace.createdAt;
   const milliseconds = typeof value === "number" ? value : Date.parse(String(value ?? ""));
   return Number.isFinite(milliseconds)
     ? new Date(milliseconds).toISOString().slice(0, 16).replace("T", " ")
@@ -54,7 +54,7 @@ export function formatTraceList(data: TraceListData): string {
   }
 
   lines.push("## Traces", "");
-  lines.push("| Time | User | Project | Agent | Status | Messages | Title | URL |");
+  lines.push("| Started | User | Project | Agent | Status | Messages | Title | URL |");
   lines.push("|---|---|---|---|---|---:|---|---|");
   for (const trace of data.traces) {
     const author = trace.createdBy ? authorById.get(trace.createdBy) : undefined;

@@ -64,6 +64,39 @@ describe("trace tools", () => {
     expect(output).not.toContain("Other");
   });
 
+  test("formats source session start with a created-time fallback", async () => {
+    const fetchImpl = mock(async () =>
+      Response.json({
+        ok: true,
+        data: {
+          traces: [
+            {
+              externalId: "source-time",
+              sourceCreatedAt: Date.UTC(2024, 0, 2, 3, 4),
+              createdAt: Date.UTC(2025, 0, 2, 3, 4),
+              updatedAt: Date.UTC(2026, 0, 2, 3, 4),
+            },
+            {
+              externalId: "legacy-time",
+              createdAt: Date.UTC(2024, 1, 3, 4, 5),
+              updatedAt: Date.UTC(2026, 1, 3, 4, 5),
+            },
+          ],
+          total: 2,
+          truncated: false,
+        },
+      }),
+    );
+
+    const output = await createToolHandlers(context, fetchImpl).search({});
+
+    expect(output).toContain("| Started |");
+    expect(output).toContain("2024-01-02 03:04");
+    expect(output).toContain("2024-02-03 04:05");
+    expect(output).not.toContain("2026-01-02 03:04");
+    expect(output).not.toContain("2026-02-03 04:05");
+  });
+
   test("formats user lookup results for deterministic chaining", async () => {
     const fetchImpl = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       expect(JSON.parse(String(init?.body))).toEqual({

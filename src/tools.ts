@@ -12,9 +12,15 @@ export const searchInputSchema = {
     .string()
     .regex(/^\d+(ms|s|m|h|d|w)$/)
     .optional()
-    .describe("Relative activity window, such as 24h, 7d, or 2w."),
-  after: z.union([z.string(), z.number()]).optional().describe("Inclusive lower time bound."),
-  before: z.union([z.string(), z.number()]).optional().describe("Exclusive upper time bound."),
+    .describe("Relative session-start window, such as 24h, 7d, or 2w."),
+  after: z
+    .union([z.string(), z.number()])
+    .optional()
+    .describe("Inclusive lower session-start bound."),
+  before: z
+    .union([z.string(), z.number()])
+    .optional()
+    .describe("Exclusive upper session-start bound."),
   limit: z.number().int().min(1).max(200).default(20).describe("Maximum traces to return."),
 };
 

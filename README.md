@@ -68,8 +68,9 @@ Name the server `Traces`, then use **MCP: List Servers** to start and authorize 
 ### `traces_search`
 
 Lists traces using deterministic metadata filters including namespace, project, creator ID, time
-range, and result limit. Results normalize the referenced people once, then use their user slugs in
-trace rows.
+range, and result limit. Time ranges and result ordering use source session start
+(`sourceCreatedAt`), falling back to first server publish (`createdAt`) for legacy traces. Results
+normalize the referenced people once, then use their user slugs in trace rows.
 
 ### `traces_lookup`
 

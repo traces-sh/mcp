@@ -12,6 +12,7 @@ export type TraceMetadata = {
   agentId?: string;
   model?: string;
   createdAt?: number | string;
+  sourceCreatedAt?: number | string;
   updatedAt?: number | string;
   messageCount?: number;
   createdBy?: string;
