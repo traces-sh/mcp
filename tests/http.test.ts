@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { createHttpHandler } from "../src/http.js";
+import { createHttpHandler, createTokenValidator } from "../src/http.js";
 
 const options = {
   apiUrl: "https://agent.traces.com",
@@ -122,6 +122,62 @@ describe("HTTP transport", () => {
 
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"');
+  });
+
+  test("validates a token once for a burst of concurrent requests", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = mock(async () => {
+      await gate;
+      return Response.json({ ok: true, data: {} });
+    });
+    const handler = createHttpHandler({ ...options, fetchImpl });
+    const request = () =>
+      handler(
+        new Request("https://mcp.traces.com", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            authorization: "Bearer valid-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+        }),
+      );
+
+    const pending = Promise.all([request(), request(), request()]);
+    release();
+    const responses = await pending;
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("reuses a token validation within its TTL and expires it afterwards", async () => {
+    let clock = 0;
+    const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
+    const validate = createTokenValidator(options.authorizationServer, fetchImpl, () => clock);
+
+    expect(await validate("token-a")).toBe("valid");
+    expect(await validate("token-a")).toBe("valid");
+    expect(await validate("token-b")).toBe("valid");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    clock = 60_001;
+    expect(await validate("token-a")).toBe("valid");
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  test("does not cache an authentication service outage", async () => {
+    const statuses = [503, 200];
+    const fetchImpl = mock(async () => new Response("", { status: statuses.shift() ?? 200 }));
+    const validate = createTokenValidator(options.authorizationServer, fetchImpl);
+
+    expect(await validate("token")).toBe("unavailable");
+    expect(await validate("token")).toBe("valid");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   test("does not misreport an authentication service outage", async () => {

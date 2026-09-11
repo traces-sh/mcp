@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { Fetch } from "./api-client.js";
 import { apiUrl, authorizationServer, publicUrl } from "./config.js";
@@ -29,11 +30,16 @@ function unauthorized(resourceUrl: string, description?: string): Response {
   });
 }
 
-async function validateToken(
+type TokenValidation = "valid" | "invalid" | "unavailable";
+
+const TOKEN_VALIDATION_TTL_MS = 60_000;
+const TOKEN_VALIDATION_CACHE_MAX = 10_000;
+
+async function fetchTokenValidation(
   token: string,
   authorizationServer: string,
   fetchImpl: Fetch,
-): Promise<"valid" | "invalid" | "unavailable"> {
+): Promise<TokenValidation> {
   try {
     const response = await fetchImpl(`${authorizationServer}/v1/session`, {
       headers: { authorization: `Bearer ${token}` },
@@ -46,6 +52,47 @@ async function validateToken(
   }
 }
 
+function tokenCacheKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Coalesces concurrent lookups per token and caches definitive answers for a short TTL. */
+export function createTokenValidator(
+  authorizationServer: string,
+  fetchImpl: Fetch,
+  now: () => number = Date.now,
+) {
+  const settled = new Map<string, { result: TokenValidation; expiresAt: number }>();
+  const inflight = new Map<string, Promise<TokenValidation>>();
+
+  return async (token: string): Promise<TokenValidation> => {
+    const key = tokenCacheKey(token);
+    const cached = settled.get(key);
+    if (cached && cached.expiresAt > now()) return cached.result;
+    settled.delete(key);
+
+    const pending = inflight.get(key);
+    if (pending) return pending;
+
+    const lookup = fetchTokenValidation(token, authorizationServer, fetchImpl).then((result) => {
+      if (result !== "unavailable") {
+        if (settled.size >= TOKEN_VALIDATION_CACHE_MAX) {
+          const oldest = settled.keys().next().value;
+          if (oldest !== undefined) settled.delete(oldest);
+        }
+        settled.set(key, { result, expiresAt: now() + TOKEN_VALIDATION_TTL_MS });
+      }
+      return result;
+    });
+    inflight.set(key, lookup);
+    try {
+      return await lookup;
+    } finally {
+      inflight.delete(key);
+    }
+  };
+}
+
 export type HttpHandlerOptions = {
   apiUrl: string;
   authorizationServer: string;
@@ -55,6 +102,7 @@ export type HttpHandlerOptions = {
 
 export function createHttpHandler(options: HttpHandlerOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const validateToken = createTokenValidator(options.authorizationServer, fetchImpl);
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
 
@@ -83,7 +131,7 @@ export function createHttpHandler(options: HttpHandlerOptions) {
 
     const token = bearerToken(request);
     if (!token) return unauthorized(options.publicUrl);
-    const validation = await validateToken(token, options.authorizationServer, fetchImpl);
+    const validation = await validateToken(token);
     if (validation === "invalid") {
       return unauthorized(options.publicUrl, "The access token is invalid or expired");
     }
