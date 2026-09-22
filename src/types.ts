@@ -1,8 +1,64 @@
 export type ServerContext = {
   apiUrl: string;
+  surfaceApiUrl?: string;
   accessToken: string;
   namespaceId?: string;
   transport: "http" | "stdio";
+};
+
+export type SurfaceRef = { surfaceId: string } | { namespaceSlug: string; key: string };
+
+export type SurfaceApprovalStatus = "not_requested" | "approved" | "rejected";
+export type SurfacePublishStatus = "private" | "public";
+
+export type SurfaceVersionRecord = {
+  version: string;
+  sdkVersion: "surface-sdk.v1";
+  htmlSha256: string;
+  htmlByteSize: number;
+  createdAt: number;
+  sourceUrl: string | null;
+  approvalStatus: SurfaceApprovalStatus;
+};
+
+export type SurfaceManagementRecord = {
+  id: string;
+  namespaceId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt: number | null;
+  publishStatus: SurfacePublishStatus;
+  currentVersion: string | null;
+  versions: SurfaceVersionRecord[];
+};
+
+export type SurfaceListData = {
+  role?: string;
+  surfaces: SurfaceManagementRecord[];
+};
+
+export type ToolAnnotations = {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint?: boolean;
+  openWorldHint: boolean;
+};
+
+export type ToolCatalogEntry = {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  annotations: ToolAnnotations;
+};
+
+export type ToolSearchData = {
+  query: string;
+  results: ToolCatalogEntry[];
 };
 
 export type TraceMetadata = {

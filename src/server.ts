@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { toolExecuteInputSchema, toolSearchInputSchema } from "./catalog.js";
 import type { Fetch } from "./api-client.js";
 import {
   createToolHandlers,
@@ -98,6 +99,39 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
         return result(`Trace read failed: ${message(error)}`, true);
       }
     },
+  );
+
+  server.registerTool(
+    "traces_search_tools",
+    {
+      title: "Search Traces Tools",
+      description:
+        "Search the available Traces MCP catalog by operation name and description. Use this to discover surface operations and other operations that are not exposed as top-level tools. Results include executable input schemas and safety annotations.",
+      inputSchema: toolSearchInputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => tools.searchTools(input),
+  );
+
+  server.registerTool(
+    "traces_execute_tool",
+    {
+      title: "Execute Traces Tool",
+      description:
+        "Execute an available Traces MCP catalog operation discovered through traces_search_tools. Arguments are validated against the discovered schema and authorization is checked again before execution.",
+      inputSchema: toolExecuteInputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input) => tools.executeTool(input),
   );
 
   return server;

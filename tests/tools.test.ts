@@ -132,6 +132,64 @@ describe("trace tools", () => {
     expect(output).toContain("Help me");
   });
 
+  test("discovers surface catalog operations incrementally", async () => {
+    const output = await createToolHandlers(context).searchTools({ query: "surface release" });
+
+    expect(output.isError).toBeUndefined();
+    expect(output.structuredContent).toMatchObject({
+      query: "surface release",
+      results: expect.arrayContaining([
+        expect.objectContaining({ name: "traces_surfaces_release_version" }),
+      ]),
+    });
+  });
+
+  test("executes a surface operation and returns its structured record", async () => {
+    const surface = {
+      id: "surface-1",
+      namespaceId: "namespace-1",
+      key: "overview",
+      name: "Overview",
+      description: null,
+      icon: null,
+      createdBy: "user-1",
+      createdAt: 1,
+      updatedAt: 2,
+      archivedAt: null,
+      publishStatus: "private",
+      currentVersion: "1.0.0",
+      versions: [],
+    };
+    const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json({ ok: true, data: { updated: true } });
+      expect(String(input)).toBe("https://agent.traces.com/v1/mcp/surfaces/surface-1");
+      return Response.json({ ok: true, data: { surface } });
+    });
+
+    const output = await createToolHandlers(context, fetchImpl).executeTool({
+      name: "traces_surfaces_release_version",
+      arguments: {
+        surface: { surfaceId: "surface-1" },
+        version: "1.0.0",
+      },
+    });
+
+    expect(output.isError).toBeUndefined();
+    expect(output.structuredContent).toEqual(surface);
+  });
+
+  test("formats catalog input errors as failed text results", async () => {
+    const output = await createToolHandlers(context).executeTool({
+      name: "traces_surfaces_archive",
+      arguments: { surface: { surfaceId: "" } },
+    });
+
+    expect(output.isError).toBe(true);
+    expect(output.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("**Input Error**") },
+    ]);
+  });
+
   test("parses a trace URL", () => {
     expect(normalizeTraceId("https://traces.com/s/trace-123?tab=events")).toBe("trace-123");
   });

@@ -8,14 +8,15 @@ is required for normal use.
 
 ## Connect
 
-The production endpoint will be:
+The production endpoint is:
 
 ```text
 https://mcp.traces.com
 ```
 
-OAuth support is under development. The commands below are the target setup flow and will work
-after the Traces authorization server and hosted endpoint are deployed.
+Authorize the client in the browser when it connects. The server publishes OAuth protected-resource
+metadata at `/.well-known/oauth-protected-resource` and validates bearer tokens against the Traces
+authorization server.
 
 ### Install for detected coding agents
 
@@ -81,6 +82,19 @@ Use it before `traces_search` when a request names a person or workspace.
 Reads a bounded event window from a trace. User and assistant text are returned by default; tool
 calls and results require explicit opt-in.
 
+### `traces_search_tools`
+
+Searches the available Traces MCP catalog incrementally. Surface operations are discovered here
+instead of being registered as individual top-level tools. Results include executable input schemas
+and safety annotations.
+
+### `traces_execute_tool`
+
+Executes a catalog operation returned by `traces_search_tools`. The operation schema is validated
+again at execution time, and the resulting surface management record is returned for mutations.
+Surface HTML is uploaded out-of-band through the trusted artifact-upload flow; it is never passed as
+an MCP tool argument.
+
 ## Verify
 
 After connecting and authorizing, ask your client:
@@ -102,6 +116,7 @@ Optional variables:
 | Variable | Purpose |
 |---|---|
 | `TRACES_API_URL` | Traces agent API origin; defaults to `https://agent.traces.com` |
+| `TRACES_SURFACES_API_URL` | Surface management API origin; defaults to `https://actions.traces.com` |
 | `TRACES_NAMESPACE_ID` | Restrict stdio searches to one workspace |
 
 Tokens are read from the environment, never accepted as MCP tool arguments.
@@ -122,6 +137,7 @@ implemented by the Traces API.
 | Variable | Purpose |
 |---|---|
 | `TRACES_API_URL` | Agent API origin used for `traces_search` and `traces_read` |
+| `TRACES_SURFACES_API_URL` | Surface management API origin used by catalog operations |
 | `MCP_PUBLIC_URL` | Public origin of this MCP server |
 | `MCP_AUTHORIZATION_SERVER` | OAuth server origin used for discovery and token validation |
 | `PORT` | HTTP listen port |
@@ -141,6 +157,7 @@ Start this MCP server in another terminal:
 
 ```bash
 TRACES_API_URL=http://localhost:3220 \
+TRACES_SURFACES_API_URL=http://localhost:3211 \
 MCP_PUBLIC_URL=http://localhost:3001 \
 MCP_AUTHORIZATION_SERVER=http://localhost:3211 \
 bun run dev:http

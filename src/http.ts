@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { Fetch } from "./api-client.js";
-import { apiUrl, authorizationServer, publicUrl } from "./config.js";
+import { apiUrl, authorizationServer, publicUrl, surfaceApiUrl } from "./config.js";
 import { buildServer } from "./server.js";
 
 const CORS_HEADERS = {
@@ -95,6 +95,7 @@ export function createTokenValidator(
 
 export type HttpHandlerOptions = {
   apiUrl: string;
+  surfaceApiUrl?: string;
   authorizationServer: string;
   publicUrl: string;
   fetchImpl?: Fetch;
@@ -146,6 +147,7 @@ export function createHttpHandler(options: HttpHandlerOptions) {
       {
         accessToken: token,
         apiUrl: options.apiUrl,
+        surfaceApiUrl: options.surfaceApiUrl,
         transport: "http",
       },
       fetchImpl,
@@ -167,6 +169,7 @@ if (import.meta.main) {
     port,
     fetch: createHttpHandler({
       apiUrl: apiUrl(),
+      surfaceApiUrl: surfaceApiUrl(),
       authorizationServer: authorizationServer(),
       publicUrl: publicUrl(),
     }),
