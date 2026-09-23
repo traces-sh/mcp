@@ -16,13 +16,10 @@ type ApiEnvelope<T> = {
   error?: { message?: string };
 };
 
-type SurfaceResponse = SurfaceManagementRecord | { surface: SurfaceManagementRecord };
-
 type SurfaceMutation = {
-  newKey?: string;
   name?: string;
   description?: string | null;
-  icon?: string | null;
+  icon?: string;
 };
 
 export class TracesApiError extends Error {
@@ -47,10 +44,6 @@ function normalizeSurface(surface: SurfaceManagementRecord): SurfaceManagementRe
       sourceUrl: version.sourceUrl ?? null,
     })),
   };
-}
-
-function surfaceFromResponse(data: SurfaceResponse): SurfaceManagementRecord {
-  return normalizeSurface("surface" in data ? data.surface : data);
 }
 
 export class TracesApiClient {
@@ -85,17 +78,7 @@ export class TracesApiClient {
     return (data.surfaces ?? []).map(normalizeSurface);
   }
 
-  async getSurfaceById(surfaceId: string): Promise<SurfaceManagementRecord> {
-    const data = await this.surfaceRequest<SurfaceResponse>(
-      "GET",
-      `/v1/mcp/surfaces/${encodeURIComponent(surfaceId)}`,
-    );
-    return surfaceFromResponse(data);
-  }
-
   async resolveSurface(ref: SurfaceRef): Promise<SurfaceManagementRecord> {
-    if ("surfaceId" in ref) return this.getSurfaceById(ref.surfaceId);
-
     const surfaces = await this.listSurfaces(ref.namespaceSlug);
     const surface = surfaces.find((candidate) => candidate.key === ref.key);
     if (!surface) {
@@ -111,7 +94,7 @@ export class TracesApiClient {
     description?: string;
     icon?: string;
   }): Promise<SurfaceManagementRecord> {
-    const data = await this.surfacePost<{ id: string }>(
+    await this.surfacePost<{ id: string }>(
       `/v1/namespaces/${encodeURIComponent(input.namespaceSlug)}/surfaces`,
       {
         key: input.key,
@@ -120,20 +103,16 @@ export class TracesApiClient {
         ...(input.icon !== undefined ? { icon: input.icon } : {}),
       },
     );
-    return this.getSurfaceById(data.id);
+    return this.resolveSurface({ namespaceSlug: input.namespaceSlug, key: input.key });
   }
 
   async updateSurface(
     ref: SurfaceRef,
     mutation: SurfaceMutation,
   ): Promise<SurfaceManagementRecord> {
-    const surface = await this.resolveSurface(ref);
-    const { newKey, ...metadata } = mutation;
-    await this.patch(`/v1/mcp/surfaces/${encodeURIComponent(surface.id)}`, {
-      ...metadata,
-      ...(newKey !== undefined ? { key: newKey } : {}),
-    });
-    return this.getSurfaceById(surface.id);
+    await this.resolveSurface(ref);
+    await this.surfacePatch(`/v1/surfaces/${encodeURIComponent(ref.key)}`, mutation);
+    return this.resolveSurface(ref);
   }
 
   async releaseSurfaceVersion(
@@ -141,18 +120,18 @@ export class TracesApiClient {
     version: string,
     visibility?: "private" | "public",
   ): Promise<SurfaceManagementRecord> {
-    const surface = await this.resolveSurface(ref);
-    await this.patch(`/v1/mcp/surfaces/${encodeURIComponent(surface.id)}`, {
+    await this.resolveSurface(ref);
+    await this.surfacePatch(`/v1/surfaces/${encodeURIComponent(ref.key)}`, {
       currentVersion: version,
       ...(visibility !== undefined ? { publishStatus: visibility } : {}),
     });
-    return this.getSurfaceById(surface.id);
+    return this.resolveSurface(ref);
   }
 
   async setSurfaceArchived(ref: SurfaceRef, archived: boolean): Promise<SurfaceManagementRecord> {
-    const surface = await this.resolveSurface(ref);
-    await this.patch(`/v1/mcp/surfaces/${encodeURIComponent(surface.id)}`, { archived });
-    return this.getSurfaceById(surface.id);
+    await this.resolveSurface(ref);
+    await this.surfacePatch(`/v1/surfaces/${encodeURIComponent(ref.key)}`, { archived });
+    return this.resolveSurface(ref);
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
@@ -163,7 +142,7 @@ export class TracesApiClient {
     return this.surfaceRequest<T>("POST", path, body);
   }
 
-  private async patch<T = Record<string, unknown>>(path: string, body: unknown): Promise<T> {
+  private async surfacePatch<T = Record<string, unknown>>(path: string, body: unknown): Promise<T> {
     return this.surfaceRequest<T>("PATCH", path, body);
   }
 

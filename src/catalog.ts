@@ -23,10 +23,10 @@ type CatalogTool = {
   execute: (api: TracesApiClient, input: unknown) => Promise<unknown>;
 };
 
-const surfaceRefSchema = z.union([
-  z.strictObject({ surfaceId: z.string().trim().min(1) }),
-  z.strictObject({ namespaceSlug: z.string().trim().min(1), key: z.string().trim().min(1) }),
-]) satisfies z.ZodType<SurfaceRef>;
+const surfaceRefSchema = z.strictObject({
+  namespaceSlug: z.string().trim().min(1),
+  key: z.string().trim().min(1),
+}) satisfies z.ZodType<SurfaceRef>;
 
 const surfacesSearchSchema = z.strictObject({
   namespaceSlug: z.string().trim().min(1),
@@ -54,17 +54,13 @@ const surfacesReleaseVersionSchema = z.strictObject({
 const surfacesUpdateSchema = z
   .strictObject({
     surface: surfaceRefSchema,
-    newKey: z.string().trim().min(1).optional(),
     name: z.string().trim().min(1).optional(),
     description: z.string().nullable().optional(),
-    icon: z.string().nullable().optional(),
+    icon: z.string().optional(),
   })
   .refine(
     (input) =>
-      input.newKey !== undefined ||
-      input.name !== undefined ||
-      input.description !== undefined ||
-      input.icon !== undefined,
+      input.name !== undefined || input.description !== undefined || input.icon !== undefined,
     { message: "At least one metadata field is required." },
   );
 
@@ -97,7 +93,7 @@ function catalogTool(
 const catalogTools: CatalogTool[] = [
   catalogTool(
     "traces_surfaces_search",
-    "List surfaces managed by a namespace, including private, archived, and unapproved surfaces. Use this to discover a surface and obtain its stable surfaceId before performing mutations.",
+    "List surfaces managed by a namespace, including private, archived, and unapproved surfaces. Use this to discover a surface key before performing mutations.",
     surfacesSearchSchema,
     { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (api, input) => {
@@ -141,13 +137,12 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_update",
-    "Update surface metadata only. This operation cannot change the current version, visibility, or archived state.",
+    "Update surface metadata only. Surface keys are immutable. This operation cannot change the current version, visibility, or archived state.",
     surfacesUpdateSchema,
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (api, input) => {
       const parsed = surfacesUpdateSchema.parse(input);
       return api.updateSurface(parsed.surface, {
-        newKey: parsed.newKey,
         name: parsed.name,
         description: parsed.description,
         icon: parsed.icon,

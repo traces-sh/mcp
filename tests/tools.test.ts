@@ -161,15 +161,18 @@ describe("trace tools", () => {
       versions: [],
     };
     const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === "PATCH") return Response.json({ ok: true, data: { updated: true } });
-      expect(String(input)).toBe("https://agent.traces.com/v1/mcp/surfaces/surface-1");
-      return Response.json({ ok: true, data: { surface } });
+      if (String(input).endsWith("/v1/namespaces/traces/surfaces")) {
+        return Response.json({ ok: true, data: { surfaces: [surface] } });
+      }
+      expect(String(input)).toBe("https://agent.traces.com/v1/surfaces/overview");
+      expect(init?.method).toBe("PATCH");
+      return Response.json({ ok: true, data: { updated: true } });
     });
 
     const output = await createToolHandlers(context, fetchImpl).executeTool({
       name: "traces_surfaces_release_version",
       arguments: {
-        surface: { surfaceId: "surface-1" },
+        surface: { namespaceSlug: "traces", key: "overview" },
         version: "1.0.0",
       },
     });
@@ -181,7 +184,7 @@ describe("trace tools", () => {
   test("formats catalog input errors as failed text results", async () => {
     const output = await createToolHandlers(context).executeTool({
       name: "traces_surfaces_archive",
-      arguments: { surface: { surfaceId: "" } },
+      arguments: { surface: { namespaceSlug: "traces", key: "" } },
     });
 
     expect(output.isError).toBe(true);

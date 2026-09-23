@@ -123,20 +123,24 @@ describe("TracesApiClient", () => {
     };
     const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
       calls.push({ input: String(input), init });
-      if (String(input).endsWith("/v1/mcp/surfaces/surface-1")) {
-        if (init?.method === "PATCH") return Response.json({ ok: true, data: { updated: true } });
-        return Response.json({ ok: true, data: { surface } });
+      if (String(input).endsWith("/v1/namespaces/traces/surfaces")) {
+        return Response.json({ ok: true, data: { surfaces: [surface] } });
+      }
+      if (String(input).endsWith("/v1/surfaces/overview")) {
+        expect(init?.method).toBe("PATCH");
+        return Response.json({ ok: true, data: { updated: true } });
       }
       throw new Error(`Unexpected request: ${String(input)}`);
     });
 
     const result = await new TracesApiClient(context, fetchImpl).releaseSurfaceVersion(
-      { surfaceId: "surface-1" },
+      { namespaceSlug: "traces", key: "overview" },
       "1.0.0",
     );
 
     expect(result).toEqual(surface);
     expect(calls[0]?.init?.method).toBe("GET");
+    expect(calls[1]?.input).toBe("https://agent.traces.com/v1/surfaces/overview");
     expect(calls[1]?.init?.method).toBe("PATCH");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ currentVersion: "1.0.0" });
     expect(calls[2]?.init?.method).toBe("GET");

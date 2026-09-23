@@ -6,7 +6,7 @@ export type ServerContext = {
   transport: "http" | "stdio";
 };
 
-export type SurfaceRef = { surfaceId: string } | { namespaceSlug: string; key: string };
+export type SurfaceRef = { namespaceSlug: string; key: string };
 
 export type SurfaceApprovalStatus = "not_requested" | "approved" | "rejected";
 export type SurfacePublishStatus = "private" | "public";
