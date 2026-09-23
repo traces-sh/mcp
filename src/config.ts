@@ -32,3 +32,27 @@ export function publicUrl(): string {
 export function authorizationServer(): string {
   return origin("MCP_AUTHORIZATION_SERVER", "https://auth.traces.com");
 }
+
+export function surfaceBuildInstructionsUrl(): string {
+  const value =
+    process.env.TRACES_SURFACE_BUILD_INSTRUCTIONS_URL ?? "https://traces.com/building_surfaces.md";
+  const parsed = new URL(value);
+  const isLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
+    throw new Error(
+      "TRACES_SURFACE_BUILD_INSTRUCTIONS_URL must use HTTPS unless it targets a loopback address.",
+    );
+  }
+  if (
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname === "/"
+  ) {
+    throw new Error(
+      "TRACES_SURFACE_BUILD_INSTRUCTIONS_URL must be a URL without credentials, query, or fragment and must include a path.",
+    );
+  }
+  return parsed.toString();
+}

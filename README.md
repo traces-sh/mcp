@@ -96,6 +96,11 @@ again at execution time, and the resulting surface management record is returned
 Surface HTML is uploaded out-of-band through the trusted artifact-upload flow; it is never passed as
 an MCP tool argument.
 
+### `surface_build_instructions`
+
+Returns the full canonical surface-building skill from `https://traces.com/building_surfaces.md`.
+The MCP server fetches and caches the Markdown, so the client does not need URL-fetching support.
+
 ## Verify
 
 After connecting and authorizing, ask your client:
@@ -119,6 +124,7 @@ Optional variables:
 | `TRACES_API_URL` | Traces agent API origin; defaults to `https://agent.traces.com` |
 | `TRACES_SURFACES_API_URL` | Surface management API origin; defaults to `https://actions.traces.com` |
 | `TRACES_NAMESPACE_ID` | Restrict stdio searches to one workspace |
+| `TRACES_SURFACE_BUILD_INSTRUCTIONS_URL` | Override the canonical surface-building skill URL for local development |
 
 Tokens are read from the environment, never accepted as MCP tool arguments.
 
@@ -139,6 +145,7 @@ implemented by the Traces API.
 |---|---|
 | `TRACES_API_URL` | Agent API origin used for `traces_search` and `traces_read` |
 | `TRACES_SURFACES_API_URL` | Surface management API origin used by catalog operations |
+| `TRACES_SURFACE_BUILD_INSTRUCTIONS_URL` | Canonical surface-building skill URL |
 | `MCP_PUBLIC_URL` | Public origin of this MCP server |
 | `MCP_AUTHORIZATION_SERVER` | OAuth server origin used for discovery and token validation |
 | `PORT` | HTTP listen port |

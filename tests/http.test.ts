@@ -108,8 +108,14 @@ describe("HTTP transport", () => {
 
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(
-      expect.arrayContaining(["traces_lookup", "traces_search_tools", "traces_execute_tool"]),
+    const toolNames = body.result.tools.map((tool: { name: string }) => tool.name);
+    expect(toolNames).toEqual(
+      expect.arrayContaining([
+        "traces_lookup",
+        "traces_search_tools",
+        "traces_execute_tool",
+        "surface_build_instructions",
+      ]),
     );
   });
 
