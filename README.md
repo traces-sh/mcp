@@ -1,6 +1,6 @@
 # Traces MCP
 
-The official Model Context Protocol server for searching and reading AI coding sessions in
+The official Model Context Protocol server for searching AI coding sessions and managing surfaces in
 [Traces](https://traces.com).
 
 The hosted server uses Streamable HTTP and OAuth. No API key, local process, or Traces CLI login
@@ -14,8 +14,9 @@ The production endpoint is:
 https://mcp.traces.com
 ```
 
-Authorize the client in the browser when it connects. The server publishes OAuth protected-resource
-metadata at `/.well-known/oauth-protected-resource` and validates bearer tokens against the Traces
+Authorize the client in the browser when it connects. The server requests `traces:read` and
+`surfaces:write` access, publishes OAuth protected-resource metadata at
+`/.well-known/oauth-protected-resource`, and validates bearer tokens against the Traces
 authorization server.
 
 ### Install for detected coding agents

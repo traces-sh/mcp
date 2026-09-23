@@ -18,7 +18,7 @@ describe("HTTP transport", () => {
     expect(await response.json()).toEqual({
       resource: "https://mcp.traces.com",
       authorization_servers: ["https://auth.traces.com"],
-      scopes_supported: ["traces:read"],
+      scopes_supported: ["traces:read", "surfaces:write"],
       bearer_methods_supported: ["header"],
     });
   });
