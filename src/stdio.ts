@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { apiUrl } from "./config.js";
+import { apiUrl, surfaceApiUrl } from "./config.js";
 import { buildServer } from "./server.js";
 
 const accessToken = process.env.TRACES_API_TOKEN?.trim();
@@ -13,6 +13,7 @@ if (!accessToken) {
 const server = buildServer({
   accessToken,
   apiUrl: apiUrl(),
+  surfaceApiUrl: surfaceApiUrl(),
   namespaceId: process.env.TRACES_NAMESPACE_ID?.trim() || undefined,
   transport: "stdio",
 });

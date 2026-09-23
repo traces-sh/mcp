@@ -1,5 +1,7 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { TracesApiClient, type Fetch } from "./api-client.js";
+import { CatalogInputError, executeCatalog, searchCatalog } from "./catalog.js";
+import { TracesApiClient, TracesApiError, type Fetch } from "./api-client.js";
 import { formatLookup, formatTraceList, formatTraceRead } from "./format.js";
 import type { ServerContext } from "./types.js";
 
@@ -68,6 +70,92 @@ export function normalizeTraceId(input: string): string {
   return traceId;
 }
 
+function structuredResult(payload: Record<string, unknown>): CallToolResult {
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+    structuredContent: payload,
+  };
+}
+
+function errorResult(operation: string, error: unknown): CallToolResult {
+  if (error instanceof CatalogInputError || error instanceof z.ZodError) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: [
+            "**Input Error**",
+            "",
+            "It looks like there was a problem with the input you provided.",
+            "",
+            error.message,
+            "",
+            "You may be able to resolve the issue by addressing the concern and trying again.",
+          ].join("\n"),
+        },
+      ],
+    };
+  }
+
+  if (error instanceof TracesApiError && error.status === 401) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: [
+            "**Authorization Expired**",
+            "",
+            "Traces rejected the stored access token for this session. Please re-authorize to continue.",
+          ].join("\n"),
+        },
+      ],
+    };
+  }
+
+  if (error instanceof TracesApiError && error.status >= 400 && error.status < 500) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: [
+            "**Input Error**",
+            "",
+            `There was an HTTP ${error.status} error with your request to the Traces API.`,
+            "",
+            error.message,
+            "",
+            "You may be able to resolve the issue by addressing the concern and trying again.",
+          ].join("\n"),
+        },
+      ],
+    };
+  }
+
+  const status = error instanceof TracesApiError ? error.status : undefined;
+  const statusText = status
+    ? `There was an HTTP ${status} server error with the Traces API.`
+    : "It looks like there was a problem communicating with the Traces API.";
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: [
+          "**Error**",
+          "",
+          statusText,
+          ...(error instanceof TracesApiError ? ["", error.message] : []),
+          "",
+          `The ${operation} operation could not be completed. Please try again later.`,
+        ].join("\n"),
+      },
+    ],
+  };
+}
+
 export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fetch) {
   const api = new TracesApiClient(context, fetchImpl);
   return {
@@ -101,6 +189,24 @@ export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fe
       return markdown.length > 50_000
         ? `${markdown.slice(0, 50_000)}\n\n[Response truncated. Read another event window.]`
         : markdown;
+    },
+    searchTools: async (input: unknown): Promise<CallToolResult> => {
+      try {
+        return structuredResult(searchCatalog(input));
+      } catch (error) {
+        return errorResult("traces_search_tools", error);
+      }
+    },
+    executeTool: async (input: unknown): Promise<CallToolResult> => {
+      try {
+        const result = await executeCatalog(api, input);
+        if (!result.output || typeof result.output !== "object" || Array.isArray(result.output)) {
+          throw new Error(`Catalog tool ${result.name} returned an invalid structured result.`);
+        }
+        return structuredResult(result.output as Record<string, unknown>);
+      } catch (error) {
+        return errorResult("traces_execute_tool", error);
+      }
     },
   };
 }
