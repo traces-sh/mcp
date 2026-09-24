@@ -94,8 +94,14 @@ and safety annotations.
 
 Executes a catalog operation returned by `traces_search_tools`. The operation schema is validated
 again at execution time, and the resulting surface management record is returned for mutations.
-Surface HTML is uploaded out-of-band through the trusted artifact-upload flow; it is never passed as
-an MCP tool argument.
+Surface HTML is never passed as an MCP tool argument. To publish, call
+`traces_surfaces_prepare_upload` (creates the surface when `name` is given and the key is new),
+POST the raw HTML file to the returned single-use URL (`curl --data-binary @surface.html`), then
+call `traces_surfaces_complete_upload` with the returned `artifactId`; it releases the version as
+current unless `release: false`.
+
+Namespace arguments are optional on OAuth connections: the server resolves the token's namespace from
+`GET /v1/session` and rejects requests for any other namespace.
 
 ### `surface_build_instructions`
 

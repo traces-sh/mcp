@@ -168,13 +168,13 @@ describe("HTTP transport", () => {
     const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
     const validate = createTokenValidator(options.authorizationServer, fetchImpl, () => clock);
 
-    expect(await validate("token-a")).toBe("valid");
-    expect(await validate("token-a")).toBe("valid");
-    expect(await validate("token-b")).toBe("valid");
+    expect((await validate("token-a")).status).toBe("valid");
+    expect((await validate("token-a")).status).toBe("valid");
+    expect((await validate("token-b")).status).toBe("valid");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
 
     clock = 60_001;
-    expect(await validate("token-a")).toBe("valid");
+    expect((await validate("token-a")).status).toBe("valid");
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
@@ -183,9 +183,54 @@ describe("HTTP transport", () => {
     const fetchImpl = mock(async () => new Response("", { status: statuses.shift() ?? 200 }));
     const validate = createTokenValidator(options.authorizationServer, fetchImpl);
 
-    expect(await validate("token")).toBe("unavailable");
-    expect(await validate("token")).toBe("valid");
+    expect((await validate("token")).status).toBe("unavailable");
+    expect((await validate("token")).status).toBe("valid");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("binds the session namespace so tools need no namespace input", async () => {
+    const calls: string[] = [];
+    const fetchImpl = mock(async (input: string | URL | Request) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith("/v1/session")) {
+        return Response.json({
+          ok: true,
+          data: { activeNamespace: { id: "namespace-1", slug: "traces", role: "admin" } },
+        });
+      }
+      return Response.json({ ok: true, data: { surfaces: [] } });
+    });
+    const handler = createHttpHandler({
+      ...options,
+      surfaceApiUrl: "https://actions.traces.com",
+      fetchImpl,
+    });
+    const response = await handler(
+      new Request("https://mcp.traces.com", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: "Bearer valid-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: {
+            name: "traces_execute_tool",
+            arguments: { name: "traces_surfaces_search", arguments: {} },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.result.isError).toBeUndefined();
+    expect(body.result.structuredContent.namespaceSlug).toBe("traces");
+    expect(calls).toContain("https://actions.traces.com/v1/namespaces/traces/surfaces");
   });
 
   test("does not misreport an authentication service outage", async () => {

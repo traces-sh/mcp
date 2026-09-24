@@ -23,13 +23,22 @@ type CatalogTool = {
   execute: (api: TracesApiClient, input: unknown) => Promise<unknown>;
 };
 
+const namespaceSlugSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .optional()
+  .describe(
+    "Namespace slug. Optional: defaults to the namespace this connection is authorized for.",
+  );
+
 const surfaceRefSchema = z.strictObject({
-  namespaceSlug: z.string().trim().min(1),
+  namespaceSlug: namespaceSlugSchema,
   key: z.string().trim().min(1),
 }) satisfies z.ZodType<SurfaceRef>;
 
 const surfacesSearchSchema = z.strictObject({
-  namespaceSlug: z.string().trim().min(1),
+  namespaceSlug: namespaceSlugSchema,
   query: z.string().trim().optional(),
   includeArchived: z.boolean().default(false),
   limit: z.number().int().min(1).max(200).default(50),
@@ -38,11 +47,43 @@ const surfacesSearchSchema = z.strictObject({
 const surfacesGetSchema = z.strictObject({ surface: surfaceRefSchema });
 
 const surfacesCreateSchema = z.strictObject({
-  namespaceSlug: z.string().trim().min(1),
+  namespaceSlug: namespaceSlugSchema,
   key: z.string().trim().min(1),
   name: z.string().trim().min(1),
   description: z.string().optional(),
   icon: z.string().optional(),
+});
+
+const surfacesPrepareUploadSchema = z.strictObject({
+  surface: surfaceRefSchema,
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Display name. Required only when the surface key does not exist yet; creates it."),
+  description: z.string().optional(),
+  icon: z.string().optional(),
+  version: z
+    .string()
+    .trim()
+    .min(1)
+    .describe("New version label, e.g. 1.0.0. Must not already exist."),
+  byteSize: z
+    .number()
+    .int()
+    .positive()
+    .describe("Exact byte size of the HTML file (wc -c). The upload is rejected if it differs."),
+});
+
+const surfacesCompleteUploadSchema = z.strictObject({
+  surface: surfaceRefSchema,
+  version: z.string().trim().min(1),
+  artifactId: z.string().trim().min(1).describe("data.artifactId from the upload response."),
+  release: z
+    .boolean()
+    .default(true)
+    .describe("Make this version current. Set false to upload without changing what users see."),
 });
 
 const surfacesReleaseVersionSchema = z.strictObject({
@@ -98,14 +139,15 @@ const catalogTools: CatalogTool[] = [
     { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (api, input) => {
       const parsed = surfacesSearchSchema.parse(input);
-      const allSurfaces = await api.listSurfaces(parsed.namespaceSlug);
+      const namespaceSlug = api.namespaceSlug(parsed.namespaceSlug);
+      const allSurfaces = await api.listSurfaces(namespaceSlug);
       const filtered = allSurfaces.filter(
         (surface) =>
           (parsed.includeArchived || surface.archivedAt === null) &&
           (parsed.query === undefined || textMatchesSurface(surface, parsed.query)),
       );
       return {
-        namespaceSlug: parsed.namespaceSlug,
+        namespaceSlug,
         surfaces: filtered.slice(0, parsed.limit),
         truncated: filtered.length > parsed.limit,
       };
@@ -126,8 +168,49 @@ const catalogTools: CatalogTool[] = [
     async (api, input) => api.createSurface(surfacesCreateSchema.parse(input)),
   ),
   catalogTool(
+    "traces_surfaces_prepare_upload",
+    "Step 1 of 2 to publish surface HTML: reserve a version and get a single-use upload destination, creating the surface first if the key is new (pass name). Send the raw HTML file body to the returned url with the returned method and headers (for example: curl -fsS -X POST -H 'Content-Type: text/html' --data-binary @surface.html <url>); the response contains data.artifactId. Then call traces_surfaces_complete_upload. The destination expires quickly and needs no bearer token. Never pass HTML through this tool; call surface_build_instructions before writing the HTML.",
+    surfacesPrepareUploadSchema,
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    async (api, input) => {
+      const parsed = surfacesPrepareUploadSchema.parse(input);
+      const createAs =
+        parsed.name !== undefined
+          ? { name: parsed.name, description: parsed.description, icon: parsed.icon }
+          : undefined;
+      const { upload, created } = await api.prepareSurfaceUpload(
+        parsed.surface,
+        parsed.version,
+        parsed.byteSize,
+        createAs,
+      );
+      return {
+        surface: { key: parsed.surface.key },
+        created,
+        version: parsed.version,
+        upload,
+        nextStep: `Upload the file, then call traces_surfaces_complete_upload with version "${parsed.version}" and the returned artifactId.`,
+      };
+    },
+  ),
+  catalogTool(
+    "traces_surfaces_complete_upload",
+    "Step 2 of 2 to publish surface HTML: finalize an uploaded artifact as an immutable surface version and, by default, make it current. Visibility is unchanged; use traces_surfaces_release_version to change it.",
+    surfacesCompleteUploadSchema,
+    { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    async (api, input) => {
+      const parsed = surfacesCompleteUploadSchema.parse(input);
+      return api.completeSurfaceUpload(
+        parsed.surface,
+        parsed.version,
+        parsed.artifactId,
+        parsed.release,
+      );
+    },
+  ),
+  catalogTool(
     "traces_surfaces_release_version",
-    "Release an already uploaded surface version as current. The version must be completed through the trusted artifact-upload flow first. This operation does not accept HTML or upload files. Omit visibility to preserve the current visibility; omission never implies public visibility.",
+    "Release an already uploaded surface version as current, or change visibility. The version must be completed through traces_surfaces_complete_upload first. This operation does not accept HTML or upload files. Omit visibility to preserve the current visibility; omission never implies public visibility.",
     surfacesReleaseVersionSchema,
     { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     async (api, input) => {
