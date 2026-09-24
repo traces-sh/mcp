@@ -3,6 +3,7 @@ import type {
   ServerContext,
   SurfaceManagementRecord,
   SurfaceRef,
+  SurfaceUploadTarget,
   SurfaceListData,
   TraceListData,
   TraceRead,
@@ -52,10 +53,22 @@ export class TracesApiClient {
     private readonly fetchImpl: Fetch = fetch,
   ) {}
 
+  /** Resolves the namespace a surface operation targets; the bound namespace wins. */
+  namespaceSlug(requested?: string): string {
+    const bound = this.context.namespace?.slug;
+    if (bound && requested && requested !== bound) {
+      throw new TracesApiError(`This connection is limited to the ${bound} namespace.`, 403);
+    }
+    const slug = bound ?? requested;
+    if (!slug) throw new TracesApiError("namespaceSlug is required.", 400);
+    return slug;
+  }
+
   async list(input: Record<string, unknown>): Promise<TraceListData> {
+    const namespaceId = this.context.namespace?.id ?? this.context.namespaceId;
     return this.post<TraceListData>("/v1/tools/list", {
       ...input,
-      ...(this.context.namespaceId ? { namespaceIds: [this.context.namespaceId] } : {}),
+      ...(namespaceId ? { namespaceIds: [namespaceId] } : {}),
     });
   }
 
@@ -67,13 +80,19 @@ export class TracesApiClient {
   }
 
   async lookup(input: Record<string, unknown>): Promise<LookupData> {
-    return this.post<LookupData>("/v1/tools/lookup", input);
+    const namespaceId = this.context.namespace?.id ?? this.context.namespaceId;
+    const needsNamespace =
+      input.kind !== "namespace" && input.namespaceId === undefined && input.id === undefined;
+    return this.post<LookupData>("/v1/tools/lookup", {
+      ...input,
+      ...(namespaceId && needsNamespace ? { namespaceId } : {}),
+    });
   }
 
-  async listSurfaces(namespaceSlug: string): Promise<SurfaceManagementRecord[]> {
+  async listSurfaces(namespaceSlug?: string): Promise<SurfaceManagementRecord[]> {
     const data = await this.surfaceRequest<SurfaceListData>(
       "GET",
-      `/v1/namespaces/${encodeURIComponent(namespaceSlug)}/surfaces`,
+      `/v1/namespaces/${encodeURIComponent(this.namespaceSlug(namespaceSlug))}/surfaces`,
     );
     return (data.surfaces ?? []).map(normalizeSurface);
   }
@@ -88,14 +107,15 @@ export class TracesApiClient {
   }
 
   async createSurface(input: {
-    namespaceSlug: string;
+    namespaceSlug?: string;
     key: string;
     name: string;
     description?: string;
     icon?: string;
   }): Promise<SurfaceManagementRecord> {
+    const namespaceSlug = this.namespaceSlug(input.namespaceSlug);
     await this.surfacePost<{ id: string }>(
-      `/v1/namespaces/${encodeURIComponent(input.namespaceSlug)}/surfaces`,
+      `/v1/namespaces/${encodeURIComponent(namespaceSlug)}/surfaces`,
       {
         key: input.key,
         name: input.name,
@@ -103,7 +123,7 @@ export class TracesApiClient {
         ...(input.icon !== undefined ? { icon: input.icon } : {}),
       },
     );
-    return this.resolveSurface({ namespaceSlug: input.namespaceSlug, key: input.key });
+    return this.resolveSurface({ namespaceSlug, key: input.key });
   }
 
   async updateSurface(
@@ -125,6 +145,45 @@ export class TracesApiClient {
       currentVersion: version,
       ...(visibility !== undefined ? { publishStatus: visibility } : {}),
     });
+    return this.resolveSurface(ref);
+  }
+
+  async prepareSurfaceUpload(
+    ref: SurfaceRef,
+    version: string,
+    byteSize: number,
+    createAs?: { name: string; description?: string; icon?: string },
+  ): Promise<{ upload: SurfaceUploadTarget; created: boolean }> {
+    const namespaceSlug = this.namespaceSlug(ref.namespaceSlug);
+    const existing = (await this.listSurfaces(namespaceSlug)).find((s) => s.key === ref.key);
+    if (!existing && !createAs) {
+      throw new TracesApiError(`Surface not found: ${ref.key}. Pass name to create it.`, 404);
+    }
+    if (!existing && createAs) {
+      await this.createSurface({ namespaceSlug, key: ref.key, ...createAs });
+    }
+    const data = await this.surfacePost<{ upload: SurfaceUploadTarget }>(
+      `/v1/surfaces/${encodeURIComponent(ref.key)}/versions/uploads`,
+      { version, byteSize },
+    );
+    return { upload: data.upload, created: !existing };
+  }
+
+  async completeSurfaceUpload(
+    ref: SurfaceRef,
+    version: string,
+    artifactId: string,
+    release: boolean,
+  ): Promise<SurfaceManagementRecord> {
+    await this.resolveSurface(ref);
+    await this.surfacePost(
+      `/v1/surfaces/${encodeURIComponent(ref.key)}/versions/uploads/complete`,
+      {
+        version,
+        artifactId,
+      },
+    );
+    if (release) return this.releaseSurfaceVersion(ref, version);
     return this.resolveSurface(ref);
   }
 

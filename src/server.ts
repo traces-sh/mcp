@@ -11,11 +11,19 @@ import {
 import type { ServerContext } from "./types.js";
 
 const VERSION = "0.1.0";
-const INSTRUCTIONS = [
-  "Use traces_lookup before traces_search when the user names a person or namespace; do not guess opaque IDs.",
-  "If lookup is ambiguous, ask the user to disambiguate before filtering.",
-  "Search results begin with a normalized People table. Use its display names in answers and its IDs only for tool filters.",
-].join(" ");
+function instructions(context: ServerContext): string {
+  return [
+    "Use traces_lookup before traces_search when the user names a person or namespace; do not guess opaque IDs.",
+    "If lookup is ambiguous, ask the user to disambiguate before filtering.",
+    "Search results begin with a normalized People table. Use its display names in answers and its IDs only for tool filters.",
+    ...(context.namespace
+      ? [
+          `This connection is scoped to the ${context.namespace.slug} namespace; never ask the user for a namespace.`,
+        ]
+      : []),
+    "To build or publish a surface, call surface_build_instructions first, then traces_search_tools with query 'surface' to find traces_surfaces_prepare_upload.",
+  ].join(" ");
+}
 
 function result(text: string, isError = false): CallToolResult {
   return { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) };
@@ -28,7 +36,7 @@ function message(error: unknown): string {
 export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): McpServer {
   const server = new McpServer(
     { name: "traces-mcp", version: VERSION },
-    { instructions: INSTRUCTIONS },
+    { instructions: instructions(context) },
   );
   const tools = createToolHandlers(context, fetchImpl);
 
