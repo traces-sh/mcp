@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TracesApiClient } from "./api-client.js";
+import { latestTraceUrl, versionPreviewUrl } from "./surface-links.js";
 import type {
   SurfaceManagementRecord,
   SurfaceRef,
@@ -70,8 +71,10 @@ const surfacesCompleteUploadSchema = z.strictObject({
   artifactId: z.string().trim().min(1).describe("data.artifactId from the upload response."),
   release: z
     .boolean()
-    .default(true)
-    .describe("Make this version current. Set false to upload without changing what users see."),
+    .default(false)
+    .describe(
+      "Make this version current immediately. Default false: the version is uploaded but users keep seeing the current one until traces_surfaces_release_version.",
+    ),
 });
 
 const surfacesReleaseVersionSchema = z.strictObject({
@@ -156,7 +159,7 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_prepare_upload",
-    "Step 1 of 2 to publish surface HTML: reserve a version and get a single-use upload destination, creating the surface first if the key is new (pass name). Send the raw HTML file body to the returned url with the returned method and headers (for example: curl -fsS -X POST -H 'Content-Type: text/html' --data-binary @surface.html <url>); the response contains data.artifactId. Then call traces_surfaces_complete_upload. The destination expires quickly and needs no bearer token. Never pass HTML through this tool; call surface_build_instructions before writing the HTML.",
+    "Step 1 of 2 to publish surface HTML: reserve a version and get a single-use upload destination, creating the surface first if the key is new (pass name). Send the raw HTML file body to the returned url with the returned method and headers (for example: curl -fsS -X POST -H 'Content-Type: text/html' --data-binary @surface.html <url>); the response contains data.artifactId. Then call traces_surfaces_complete_upload. The destination expires quickly and needs no bearer token. Never pass HTML through this tool. Uploading does not change what users see: complete_upload leaves the current version untouched and returns a previewUrl for trying the new one.",
     surfacesPrepareUploadSchema,
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (api, input) => {
@@ -182,17 +185,32 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_complete_upload",
-    "Step 2 of 2 to publish surface HTML: finalize an uploaded artifact as an immutable surface version and, by default, make it current. Visibility is unchanged; use traces_surfaces_release_version to change it.",
+    "Step 2 of 2 to publish surface HTML: finalize an uploaded artifact as an immutable surface version. The result includes a previewUrl that renders this exact version on the user's latest trace (namespace members only) so they can try it before it goes live; always share it with the user. Make it current with release: true here or, after the user has tried it, via traces_surfaces_release_version, which also controls visibility.",
     surfacesCompleteUploadSchema,
     { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     async (api, input) => {
       const parsed = surfacesCompleteUploadSchema.parse(input);
-      return api.completeSurfaceUpload(
-        parsed.surface,
-        parsed.version,
-        parsed.artifactId,
-        parsed.release,
-      );
+      const [surface, traceUrl] = await Promise.all([
+        api.completeSurfaceUpload(
+          parsed.surface,
+          parsed.version,
+          parsed.artifactId,
+          parsed.release,
+        ),
+        latestTraceUrl(api),
+      ]);
+      return {
+        surface,
+        version: parsed.version,
+        released: parsed.release,
+        previewUrl:
+          traceUrl === undefined
+            ? undefined
+            : versionPreviewUrl(traceUrl, parsed.surface.key, parsed.version),
+        nextStep: parsed.release
+          ? "This version is now current."
+          : `Ask the user to try previewUrl; when happy, call traces_surfaces_release_version with version "${parsed.version}" to make it current.`,
+      };
     },
   ),
   catalogTool(

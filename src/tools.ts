@@ -5,6 +5,7 @@ import { TracesApiClient, TracesApiError, type Fetch } from "./api-client.js";
 import { surfaceBuildInstructionsUrl } from "./config.js";
 import { formatLookup, formatTraceList, formatTraceRead } from "./format.js";
 import { SurfaceBuildInstructionsLoader } from "./surface-build-instructions.js";
+import { buildGuidance, latestTraceUrl } from "./surface-links.js";
 import type { ServerContext } from "./types.js";
 
 export const searchInputSchema = {
@@ -189,13 +190,17 @@ export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fe
         : markdown;
     },
     buildInstructions: async () => {
-      const instructions = await buildInstructions.load();
+      const [instructions, traceUrl] = await Promise.all([
+        buildInstructions.load(),
+        latestTraceUrl(api),
+      ]);
       return [
         `Canonical source: ${instructions.sourceUrl}`,
         `Content SHA-256: ${instructions.contentHash}`,
         ...(instructions.stale
           ? ["The canonical source was unavailable; this is the last cached copy."]
           : []),
+        ...buildGuidance(traceUrl),
         "",
         instructions.markdown,
       ].join("\n");
