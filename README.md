@@ -133,6 +133,7 @@ Optional variables:
 |---|---|
 | `TRACES_API_URL` | Traces agent API origin; defaults to `https://agent.traces.com` |
 | `TRACES_SURFACES_API_URL` | Surface management API origin; defaults to `https://actions.traces.com` |
+| `TRACES_WEB_URL` | Traces web origin used in trace/surface preview links; defaults to `https://traces.com` |
 | `MCP_AUTHORIZATION_SERVER` | Traces auth origin used to resolve the token's session; defaults to `https://auth.traces.com` |
 | `TRACES_SURFACE_BUILD_INSTRUCTIONS_URL` | Override the canonical surface-building skill URL for local development |
 
@@ -155,6 +156,7 @@ implemented by the Traces API.
 |---|---|
 | `TRACES_API_URL` | Agent API origin used for `traces_search` and `traces_read` |
 | `TRACES_SURFACES_API_URL` | Surface management API origin used by catalog operations |
+| `TRACES_WEB_URL` | Web origin for trace and surface preview links |
 | `TRACES_SURFACE_BUILD_INSTRUCTIONS_URL` | Canonical surface-building skill URL |
 | `MCP_PUBLIC_URL` | Public origin of this MCP server |
 | `MCP_AUTHORIZATION_SERVER` | OAuth server origin used for discovery and token validation |
