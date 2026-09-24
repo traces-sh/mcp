@@ -228,13 +228,13 @@ describe("trace tools", () => {
 
   test("returns the canonical surface-building skill", async () => {
     const fetchImpl = mock(async (input: string | URL | Request) => {
-      expect(String(input)).toBe("https://traces.com/building_surfaces.md");
+      expect(String(input)).toBe("https://traces.com/surfaces.md");
       return new Response("# Build a surface\n");
     });
 
     const output = await createToolHandlers(context, fetchImpl).buildInstructions();
 
-    expect(output).toContain("Canonical source: https://traces.com/building_surfaces.md");
+    expect(output).toContain("Canonical source: https://traces.com/surfaces.md");
     expect(output).toContain("# Build a surface");
   });
 

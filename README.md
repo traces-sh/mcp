@@ -105,7 +105,7 @@ Namespace arguments are optional on OAuth connections: the server resolves the t
 
 ### `surface_build_instructions`
 
-Returns the full canonical surface-building skill from `https://traces.com/building_surfaces.md`.
+Returns the full canonical surface-building skill from `https://traces.com/surfaces.md`.
 The MCP server fetches and caches the Markdown, so the client does not need URL-fetching support.
 
 ## Verify

@@ -43,7 +43,7 @@ describe("service configuration", () => {
     expect(surfaceApiUrl()).toBe("https://actions.traces.com");
     expect(publicUrl()).toBe("http://localhost:3001");
     expect(authorizationServer()).toBe("https://auth.traces.com");
-    expect(surfaceBuildInstructionsUrl()).toBe("https://traces.com/building_surfaces.md");
+    expect(surfaceBuildInstructionsUrl()).toBe("https://traces.com/surfaces.md");
   });
 
   test("allows HTTP for local surface services", () => {
