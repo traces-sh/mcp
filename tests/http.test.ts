@@ -18,7 +18,7 @@ describe("HTTP transport", () => {
     expect(await response.json()).toEqual({
       resource: "https://mcp.traces.com",
       authorization_servers: ["https://auth.traces.com"],
-      scopes_supported: ["traces:read"],
+      scopes_supported: ["traces:read", "surfaces:write"],
       bearer_methods_supported: ["header"],
     });
   });
@@ -108,8 +108,14 @@ describe("HTTP transport", () => {
 
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(
-      expect.arrayContaining(["traces_lookup", "traces_search_tools", "traces_execute_tool"]),
+    const toolNames = body.result.tools.map((tool: { name: string }) => tool.name);
+    expect(toolNames).toEqual(
+      expect.arrayContaining([
+        "traces_lookup",
+        "traces_search_tools",
+        "traces_execute_tool",
+        "surface_build_instructions",
+      ]),
     );
   });
 

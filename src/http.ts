@@ -116,7 +116,7 @@ export function createHttpHandler(options: HttpHandlerOptions) {
         {
           resource: options.publicUrl,
           authorization_servers: [options.authorizationServer],
-          scopes_supported: ["traces:read"],
+          scopes_supported: ["traces:read", "surfaces:write"],
           bearer_methods_supported: ["header"],
         },
         { headers: { "cache-control": "public, max-age=3600", ...CORS_HEADERS } },

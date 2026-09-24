@@ -2,7 +2,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { CatalogInputError, executeCatalog, searchCatalog } from "./catalog.js";
 import { TracesApiClient, TracesApiError, type Fetch } from "./api-client.js";
+import { surfaceBuildInstructionsUrl } from "./config.js";
 import { formatLookup, formatTraceList, formatTraceRead } from "./format.js";
+import { SurfaceBuildInstructionsLoader } from "./surface-build-instructions.js";
 import type { ServerContext } from "./types.js";
 
 export const searchInputSchema = {
@@ -158,6 +160,10 @@ function errorResult(operation: string, error: unknown): CallToolResult {
 
 export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fetch) {
   const api = new TracesApiClient(context, fetchImpl);
+  const buildInstructions = new SurfaceBuildInstructionsLoader(
+    surfaceBuildInstructionsUrl(),
+    fetchImpl,
+  );
   return {
     search: async (input: Record<string, unknown>) => formatTraceList(await api.list(input)),
     lookup: async (input: Record<string, unknown>) => formatLookup(await api.lookup(input)),
@@ -189,6 +195,18 @@ export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fe
       return markdown.length > 50_000
         ? `${markdown.slice(0, 50_000)}\n\n[Response truncated. Read another event window.]`
         : markdown;
+    },
+    buildInstructions: async () => {
+      const instructions = await buildInstructions.load();
+      return [
+        `Canonical source: ${instructions.sourceUrl}`,
+        `Content SHA-256: ${instructions.contentHash}`,
+        ...(instructions.stale
+          ? ["The canonical source was unavailable; this is the last cached copy."]
+          : []),
+        "",
+        instructions.markdown,
+      ].join("\n");
     },
     searchTools: async (input: unknown): Promise<CallToolResult> => {
       try {

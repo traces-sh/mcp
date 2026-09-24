@@ -134,5 +134,28 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
     async (input) => tools.executeTool(input),
   );
 
+  server.registerTool(
+    "surface_build_instructions",
+    {
+      title: "Build Traces Surface",
+      description:
+        "Return the canonical Traces surface-building skill. Use this before creating or revising a surface; the MCP server fetches the instructions so the client does not need URL-fetching support.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async () => {
+      try {
+        return result(await tools.buildInstructions());
+      } catch (error) {
+        return result(`Surface build instructions failed: ${message(error)}`, true);
+      }
+    },
+  );
+
   return server;
 }
