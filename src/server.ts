@@ -16,12 +16,8 @@ function instructions(context: ServerContext): string {
     "Use traces_lookup before traces_search when the user names a person or namespace; do not guess opaque IDs.",
     "If lookup is ambiguous, ask the user to disambiguate before filtering.",
     "Search results begin with a normalized People table. Use its display names in answers and its IDs only for tool filters.",
-    ...(context.namespace
-      ? [
-          `This connection is scoped to the ${context.namespace.slug} namespace; never ask the user for a namespace.`,
-        ]
-      : []),
-    "To build or publish a surface, call surface_build_instructions first, then traces_search_tools with query 'surface' to find traces_surfaces_prepare_upload.",
+    `This connection is scoped to the ${context.namespace.slug} namespace; never ask the user for a namespace.`,
+    "To build a surface, call surface_build_instructions first. Use traces_search_tools with query 'surface' to find the upload tools; traces_surfaces_complete_upload returns a previewUrl that shows the uploaded version on the user's latest trace without making it current. Share that link, and only call traces_surfaces_release_version once the user is happy.",
   ].join(" ");
 }
 
@@ -147,7 +143,7 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
     {
       title: "Build Traces Surface",
       description:
-        "Return the canonical Traces surface-building skill. Use this before creating or revising a surface; the MCP server fetches the instructions so the client does not need URL-fetching support.",
+        "Return the canonical Traces surface-building skill plus the user's latest trace URL for trying uploaded versions. Use this before creating or revising a surface; the MCP server fetches the instructions so the client does not need URL-fetching support.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,

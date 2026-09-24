@@ -4,6 +4,7 @@ import { createToolHandlers, normalizeTraceId } from "../src/tools.js";
 const context = {
   accessToken: "test-token",
   apiUrl: "https://agent.traces.com",
+  namespace: { id: "namespace-1", slug: "traces" },
   transport: "http" as const,
 };
 
@@ -126,7 +127,6 @@ describe("trace tools", () => {
     const output = await createToolHandlers(context, fetchImpl).lookup({
       kind: "user",
       query: "Srihari",
-      namespaceId: "namespace-1",
     });
 
     expect(output).toContain("Srihari");
@@ -205,7 +205,7 @@ describe("trace tools", () => {
     const output = await createToolHandlers(context, fetchImpl).executeTool({
       name: "traces_surfaces_release_version",
       arguments: {
-        surface: { namespaceSlug: "traces", key: "overview" },
+        surface: { key: "overview" },
         version: "1.0.0",
       },
     });
@@ -217,7 +217,7 @@ describe("trace tools", () => {
   test("formats catalog input errors as failed text results", async () => {
     const output = await createToolHandlers(context).executeTool({
       name: "traces_surfaces_archive",
-      arguments: { surface: { namespaceSlug: "traces", key: "" } },
+      arguments: { surface: { key: "" } },
     });
 
     expect(output.isError).toBe(true);
@@ -226,8 +226,45 @@ describe("trace tools", () => {
     ]);
   });
 
-  test("returns the canonical surface-building skill", async () => {
+  test("completing an upload leaves the version unreleased and returns a pinned preview link", async () => {
+    const surface = { id: "surface-1", key: "overview", name: "Overview", currentVersion: null };
+    const calls: string[] = [];
+    const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
+      if (url.endsWith("/v1/tools/list")) {
+        return Response.json({
+          ok: true,
+          data: { traces: [{ externalId: "trace-9", url: "https://traces.com/s/trace-9" }] },
+        });
+      }
+      if (url.endsWith("/v1/namespaces/traces/surfaces")) {
+        return Response.json({ ok: true, data: { surfaces: [surface] } });
+      }
+      return Response.json({ ok: true, data: {} });
+    });
+
+    const output = await createToolHandlers(context, fetchImpl).executeTool({
+      name: "traces_surfaces_complete_upload",
+      arguments: { surface: { key: "overview" }, version: "1.0.0", artifactId: "artifact-1" },
+    });
+
+    expect(output.isError).toBeUndefined();
+    expect(output.structuredContent).toMatchObject({
+      released: false,
+      previewUrl: "https://traces.com/s/trace-9?surface=overview&version=1.0.0",
+    });
+    expect(calls).not.toContain("PATCH /v1/surfaces/overview");
+  });
+
+  test("returns the canonical surface-building skill with the latest trace", async () => {
     const fetchImpl = mock(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/v1/tools/list")) {
+        return Response.json({
+          ok: true,
+          data: { traces: [{ externalId: "trace-9", url: "https://traces.com/s/trace-9" }] },
+        });
+      }
       expect(String(input)).toBe("https://traces.com/surfaces.md");
       return new Response("# Build a surface\n");
     });
@@ -235,6 +272,8 @@ describe("trace tools", () => {
     const output = await createToolHandlers(context, fetchImpl).buildInstructions();
 
     expect(output).toContain("Canonical source: https://traces.com/surfaces.md");
+    expect(output).toContain("Latest trace in this namespace");
+    expect(output).toContain("https://traces.com/s/trace-9");
     expect(output).toContain("# Build a surface");
   });
 

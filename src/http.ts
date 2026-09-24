@@ -3,7 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { Fetch } from "./api-client.js";
 import { apiUrl, authorizationServer, publicUrl, surfaceApiUrl } from "./config.js";
 import { buildServer } from "./server.js";
-import type { NamespaceRef, SessionData } from "./types.js";
+import { lookupSession, type SessionLookup } from "./session.js";
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -31,44 +31,10 @@ function unauthorized(resourceUrl: string, description?: string): Response {
   });
 }
 
-type TokenValidation =
-  | { status: "valid"; namespace?: NamespaceRef }
-  | { status: "invalid" }
-  | { status: "unavailable" };
-
-function namespaceFromSession(payload: unknown): NamespaceRef | undefined {
-  const data = (payload as { data?: Partial<SessionData> } | undefined)?.data;
-  const namespace = data?.activeNamespace;
-  if (typeof namespace?.id === "string" && typeof namespace.slug === "string") {
-    return { id: namespace.id, slug: namespace.slug };
-  }
-  return undefined;
-}
+type TokenValidation = SessionLookup;
 
 const TOKEN_VALIDATION_TTL_MS = 60_000;
 const TOKEN_VALIDATION_CACHE_MAX = 10_000;
-
-async function fetchTokenValidation(
-  token: string,
-  authorizationServer: string,
-  fetchImpl: Fetch,
-): Promise<TokenValidation> {
-  try {
-    const response = await fetchImpl(`${authorizationServer}/v1/session`, {
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (response.ok) {
-      const payload = await response.json().catch(() => undefined);
-      return { status: "valid", namespace: namespaceFromSession(payload) };
-    }
-    return {
-      status: response.status === 401 || response.status === 403 ? "invalid" : "unavailable",
-    };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
 
 function tokenCacheKey(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -92,7 +58,7 @@ export function createTokenValidator(
     const pending = inflight.get(key);
     if (pending) return pending;
 
-    const lookup = fetchTokenValidation(token, authorizationServer, fetchImpl).then((result) => {
+    const lookup = lookupSession(token, authorizationServer, fetchImpl).then((result) => {
       if (result.status !== "unavailable") {
         if (settled.size >= TOKEN_VALIDATION_CACHE_MAX) {
           const oldest = settled.keys().next().value;

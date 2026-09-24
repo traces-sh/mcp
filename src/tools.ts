@@ -5,15 +5,10 @@ import { TracesApiClient, TracesApiError, type Fetch } from "./api-client.js";
 import { surfaceBuildInstructionsUrl } from "./config.js";
 import { formatLookup, formatTraceList, formatTraceRead } from "./format.js";
 import { SurfaceBuildInstructionsLoader } from "./surface-build-instructions.js";
+import { buildGuidance, latestTraceUrl } from "./surface-links.js";
 import type { ServerContext } from "./types.js";
 
 export const searchInputSchema = {
-  namespaceIds: z
-    .array(z.string().min(1))
-    .optional()
-    .describe(
-      "Traces namespace IDs. Ignored when the connection is authorized for a single namespace.",
-    ),
   projectName: z.string().min(1).optional().describe("Exact project name."),
   projectPath: z.string().min(1).optional().describe("Project path prefix."),
   createdByUserIds: z.array(z.string().min(1)).optional().describe("Traces creator IDs."),
@@ -50,22 +45,13 @@ export const lookupInputSchema = {
     .string()
     .min(1)
     .optional()
-    .describe(
-      "Case-insensitive display-name query. User queries need a namespace; the connection's namespace is used when namespaceId is omitted.",
-    ),
+    .describe("Case-insensitive display-name query, matched within this connection's namespace."),
   id: z.string().min(1).optional().describe("Exact entity ID. Use this to humanize an opaque ID."),
   slug: z
     .string()
     .min(1)
     .optional()
     .describe("Exact slug. Valid for namespaces and registered agents, not users."),
-  namespaceId: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "Restrict users or registered agents to a visible namespace. Defaults to the connection's namespace. By itself, enumerates that namespace.",
-    ),
   limit: z.number().int().min(1).max(50).default(10).describe("Maximum matches to return."),
 };
 
@@ -204,13 +190,17 @@ export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fe
         : markdown;
     },
     buildInstructions: async () => {
-      const instructions = await buildInstructions.load();
+      const [instructions, traceUrl] = await Promise.all([
+        buildInstructions.load(),
+        latestTraceUrl(api),
+      ]);
       return [
         `Canonical source: ${instructions.sourceUrl}`,
         `Content SHA-256: ${instructions.contentHash}`,
         ...(instructions.stale
           ? ["The canonical source was unavailable; this is the last cached copy."]
           : []),
+        ...buildGuidance(traceUrl),
         "",
         instructions.markdown,
       ].join("\n");

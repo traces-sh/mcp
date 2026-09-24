@@ -25,6 +25,10 @@ export function surfaceApiUrl(): string {
   return origin("TRACES_SURFACES_API_URL", "https://actions.traces.com");
 }
 
+export function webUrl(): string {
+  return origin("TRACES_WEB_URL", "https://traces.com");
+}
+
 export function publicUrl(): string {
   return origin("MCP_PUBLIC_URL", "http://localhost:3001");
 }

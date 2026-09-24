@@ -2,10 +2,8 @@ export type ServerContext = {
   apiUrl: string;
   surfaceApiUrl?: string;
   accessToken: string;
-  /** Namespace the credential is bound to; tools default to it and never leave it. */
-  namespace?: NamespaceRef;
-  /** Restricts stdio searches to one namespace when no bound namespace is known. */
-  namespaceId?: string;
+  /** Namespace the credential is bound to; every tool operates in it and never leaves it. */
+  namespace: NamespaceRef;
   transport: "http" | "stdio";
 };
 
@@ -15,7 +13,7 @@ export type SessionData = {
   activeNamespace: NamespaceRef;
 };
 
-export type SurfaceRef = { namespaceSlug?: string; key: string };
+export type SurfaceRef = { key: string };
 
 /** Single-use, short-lived destination for raw HTML; no bearer token required. */
 export type SurfaceUploadTarget = {

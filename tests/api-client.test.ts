@@ -5,14 +5,14 @@ import type { SurfaceManagementRecord } from "../src/types.js";
 const context = {
   accessToken: "test-token",
   apiUrl: "https://agent.traces.com",
-  namespaceId: "namespace-1",
+  namespace: { id: "namespace-1", slug: "traces" },
   transport: "stdio" as const,
 };
 
 afterEach(() => mock.restore());
 
 describe("TracesApiClient", () => {
-  test("adds authentication and the configured namespace", async () => {
+  test("adds authentication and the bound namespace", async () => {
     const fetchImpl = mock(async (_input: string | URL | Request, _init?: RequestInit) =>
       Response.json({ ok: true, data: { traces: [] } }),
     );
@@ -93,7 +93,7 @@ describe("TracesApiClient", () => {
       });
     });
 
-    const surfaces = await new TracesApiClient(context, fetchImpl).listSurfaces("traces");
+    const surfaces = await new TracesApiClient(context, fetchImpl).listSurfaces();
 
     expect(surfaces[0]).toMatchObject({
       description: null,
@@ -134,7 +134,7 @@ describe("TracesApiClient", () => {
     });
 
     const result = await new TracesApiClient(context, fetchImpl).releaseSurfaceVersion(
-      { namespaceSlug: "traces", key: "overview" },
+      { key: "overview" },
       "1.0.0",
     );
 
@@ -146,20 +146,14 @@ describe("TracesApiClient", () => {
     expect(calls[2]?.init?.method).toBe("GET");
   });
 
-  test("defaults to the bound namespace and refuses to leave it", async () => {
-    const bound = {
-      accessToken: "test-token",
-      apiUrl: "https://agent.traces.com",
-      namespace: { id: "namespace-1", slug: "traces" },
-      transport: "http" as const,
-    };
+  test("pins every request to the bound namespace", async () => {
     const fetchImpl = mock(async (_input: string | URL | Request, _init?: RequestInit) =>
       Response.json({ ok: true, data: { surfaces: [] } }),
     );
-    const client = new TracesApiClient(bound, fetchImpl);
+    const client = new TracesApiClient(context, fetchImpl);
 
     await client.list({ namespaceIds: ["other"] });
-    await client.lookup({ kind: "user", query: "ann" });
+    await client.lookup({ kind: "user", query: "ann", namespaceId: "other" });
     await client.listSurfaces();
 
     const bodies = fetchImpl.mock.calls.map(
@@ -170,7 +164,6 @@ describe("TracesApiClient", () => {
     expect(String(fetchImpl.mock.calls[2]?.[0])).toBe(
       "https://agent.traces.com/v1/namespaces/traces/surfaces",
     );
-    expect(client.listSurfaces("other")).rejects.toMatchObject({ status: 403 });
   });
 
   test("publishes HTML through prepare and complete upload", async () => {
@@ -211,10 +204,7 @@ describe("TracesApiClient", () => {
       }
       return Response.json({ ok: true, data: {} });
     });
-    const client = new TracesApiClient(
-      { ...context, namespace: { id: "namespace-1", slug: "traces" } },
-      fetchImpl,
-    );
+    const client = new TracesApiClient(context, fetchImpl);
 
     const prepared = await client.prepareSurfaceUpload({ key: "overview" }, "1.0.0", 42, {
       name: "Overview",
