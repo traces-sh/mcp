@@ -145,4 +145,92 @@ describe("TracesApiClient", () => {
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ currentVersion: "1.0.0" });
     expect(calls[2]?.init?.method).toBe("GET");
   });
+
+  test("defaults to the bound namespace and refuses to leave it", async () => {
+    const bound = {
+      accessToken: "test-token",
+      apiUrl: "https://agent.traces.com",
+      namespace: { id: "namespace-1", slug: "traces" },
+      transport: "http" as const,
+    };
+    const fetchImpl = mock(async (_input: string | URL | Request, _init?: RequestInit) =>
+      Response.json({ ok: true, data: { surfaces: [] } }),
+    );
+    const client = new TracesApiClient(bound, fetchImpl);
+
+    await client.list({ namespaceIds: ["other"] });
+    await client.lookup({ kind: "user", query: "ann" });
+    await client.listSurfaces();
+
+    const bodies = fetchImpl.mock.calls.map(
+      ([, init]) => init?.body && JSON.parse(String(init.body)),
+    );
+    expect(bodies[0]).toEqual({ namespaceIds: ["namespace-1"] });
+    expect(bodies[1]).toEqual({ kind: "user", query: "ann", namespaceId: "namespace-1" });
+    expect(String(fetchImpl.mock.calls[2]?.[0])).toBe(
+      "https://agent.traces.com/v1/namespaces/traces/surfaces",
+    );
+    expect(client.listSurfaces("other")).rejects.toMatchObject({ status: 403 });
+  });
+
+  test("publishes HTML through prepare and complete upload", async () => {
+    const surface: SurfaceManagementRecord = {
+      id: "surface-1",
+      namespaceId: "namespace-1",
+      key: "overview",
+      name: "Overview",
+      description: null,
+      icon: null,
+      createdBy: "user-1",
+      createdAt: 1,
+      updatedAt: 2,
+      archivedAt: null,
+      publishStatus: "private",
+      currentVersion: null,
+      versions: [],
+    };
+    const calls: { url: string; method?: string; body?: unknown }[] = [];
+    let created = false;
+    const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method, body: init?.body && JSON.parse(String(init.body)) });
+      if (url.endsWith("/v1/namespaces/traces/surfaces") && init?.method === "GET") {
+        return Response.json({ ok: true, data: { surfaces: created ? [surface] : [] } });
+      }
+      if (url.endsWith("/v1/namespaces/traces/surfaces")) {
+        created = true;
+        return Response.json({ ok: true, data: { id: "surface-1" } });
+      }
+      if (url.endsWith("/versions/uploads")) {
+        return Response.json({
+          ok: true,
+          data: {
+            upload: { url: "https://actions.traces.com/u/tok", method: "POST", headers: {} },
+          },
+        });
+      }
+      return Response.json({ ok: true, data: {} });
+    });
+    const client = new TracesApiClient(
+      { ...context, namespace: { id: "namespace-1", slug: "traces" } },
+      fetchImpl,
+    );
+
+    const prepared = await client.prepareSurfaceUpload({ key: "overview" }, "1.0.0", 42, {
+      name: "Overview",
+    });
+    expect(prepared.created).toBe(true);
+    expect(prepared.upload.url).toBe("https://actions.traces.com/u/tok");
+    expect(calls.find((c) => c.url.endsWith("/versions/uploads"))?.body).toEqual({
+      version: "1.0.0",
+      byteSize: 42,
+    });
+
+    await client.completeSurfaceUpload({ key: "overview" }, "1.0.0", "artifact-1", true);
+    expect(calls.find((c) => c.url.endsWith("/uploads/complete"))?.body).toEqual({
+      version: "1.0.0",
+      artifactId: "artifact-1",
+    });
+    expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ currentVersion: "1.0.0" });
+  });
 });
