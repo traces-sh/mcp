@@ -4,7 +4,7 @@ import {
   SurfaceBuildInstructionsLoader,
 } from "../src/surface-build-instructions.js";
 
-const sourceUrl = "https://traces.com/building_surfaces.md";
+const sourceUrl = "https://traces.com/surfaces.md";
 
 const response = (body: string, status = 200, headers?: HeadersInit) =>
   new Response(body, { status, headers });

@@ -35,7 +35,7 @@ export function authorizationServer(): string {
 
 export function surfaceBuildInstructionsUrl(): string {
   const value =
-    process.env.TRACES_SURFACE_BUILD_INSTRUCTIONS_URL ?? "https://traces.com/building_surfaces.md";
+    process.env.TRACES_SURFACE_BUILD_INSTRUCTIONS_URL ?? "https://traces.com/surfaces.md";
   const parsed = new URL(value);
   const isLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
   if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
