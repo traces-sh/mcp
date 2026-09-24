@@ -22,6 +22,7 @@ type SurfaceMutation = {
   name?: string;
   description?: string | null;
   icon?: string;
+  currentVersion?: null;
 };
 
 export class TracesApiError extends Error {
