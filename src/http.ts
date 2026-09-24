@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { Fetch } from "./api-client.js";
 import { apiUrl, authorizationServer, publicUrl, surfaceApiUrl } from "./config.js";
 import { buildServer } from "./server.js";
+import type { NamespaceRef, SessionData } from "./types.js";
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -30,7 +31,19 @@ function unauthorized(resourceUrl: string, description?: string): Response {
   });
 }
 
-type TokenValidation = "valid" | "invalid" | "unavailable";
+type TokenValidation =
+  | { status: "valid"; namespace?: NamespaceRef }
+  | { status: "invalid" }
+  | { status: "unavailable" };
+
+function namespaceFromSession(payload: unknown): NamespaceRef | undefined {
+  const data = (payload as { data?: Partial<SessionData> } | undefined)?.data;
+  const namespace = data?.activeNamespace;
+  if (typeof namespace?.id === "string" && typeof namespace.slug === "string") {
+    return { id: namespace.id, slug: namespace.slug };
+  }
+  return undefined;
+}
 
 const TOKEN_VALIDATION_TTL_MS = 60_000;
 const TOKEN_VALIDATION_CACHE_MAX = 10_000;
@@ -45,10 +58,15 @@ async function fetchTokenValidation(
       headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(10_000),
     });
-    if (response.ok) return "valid";
-    return response.status === 401 || response.status === 403 ? "invalid" : "unavailable";
+    if (response.ok) {
+      const payload = await response.json().catch(() => undefined);
+      return { status: "valid", namespace: namespaceFromSession(payload) };
+    }
+    return {
+      status: response.status === 401 || response.status === 403 ? "invalid" : "unavailable",
+    };
   } catch {
-    return "unavailable";
+    return { status: "unavailable" };
   }
 }
 
@@ -75,7 +93,7 @@ export function createTokenValidator(
     if (pending) return pending;
 
     const lookup = fetchTokenValidation(token, authorizationServer, fetchImpl).then((result) => {
-      if (result !== "unavailable") {
+      if (result.status !== "unavailable") {
         if (settled.size >= TOKEN_VALIDATION_CACHE_MAX) {
           const oldest = settled.keys().next().value;
           if (oldest !== undefined) settled.delete(oldest);
@@ -133,10 +151,10 @@ export function createHttpHandler(options: HttpHandlerOptions) {
     const token = bearerToken(request);
     if (!token) return unauthorized(options.publicUrl);
     const validation = await validateToken(token);
-    if (validation === "invalid") {
+    if (validation.status === "invalid") {
       return unauthorized(options.publicUrl, "The access token is invalid or expired");
     }
-    if (validation === "unavailable") {
+    if (validation.status === "unavailable") {
       return new Response("Traces authentication is temporarily unavailable", {
         status: 503,
         headers: CORS_HEADERS,
@@ -148,6 +166,7 @@ export function createHttpHandler(options: HttpHandlerOptions) {
         accessToken: token,
         apiUrl: options.apiUrl,
         surfaceApiUrl: options.surfaceApiUrl,
+        namespace: validation.namespace,
         transport: "http",
       },
       fetchImpl,

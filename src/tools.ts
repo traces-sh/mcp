@@ -8,7 +8,12 @@ import { SurfaceBuildInstructionsLoader } from "./surface-build-instructions.js"
 import type { ServerContext } from "./types.js";
 
 export const searchInputSchema = {
-  namespaceIds: z.array(z.string().min(1)).optional().describe("Traces namespace IDs."),
+  namespaceIds: z
+    .array(z.string().min(1))
+    .optional()
+    .describe(
+      "Traces namespace IDs. Ignored when the connection is authorized for a single namespace.",
+    ),
   projectName: z.string().min(1).optional().describe("Exact project name."),
   projectPath: z.string().min(1).optional().describe("Project path prefix."),
   createdByUserIds: z.array(z.string().min(1)).optional().describe("Traces creator IDs."),
@@ -45,7 +50,9 @@ export const lookupInputSchema = {
     .string()
     .min(1)
     .optional()
-    .describe("Case-insensitive display-name query. User queries require namespaceId."),
+    .describe(
+      "Case-insensitive display-name query. User queries need a namespace; the connection's namespace is used when namespaceId is omitted.",
+    ),
   id: z.string().min(1).optional().describe("Exact entity ID. Use this to humanize an opaque ID."),
   slug: z
     .string()
@@ -57,7 +64,7 @@ export const lookupInputSchema = {
     .min(1)
     .optional()
     .describe(
-      "Restrict users or registered agents to a visible namespace. By itself, enumerates that namespace.",
+      "Restrict users or registered agents to a visible namespace. Defaults to the connection's namespace. By itself, enumerates that namespace.",
     ),
   limit: z.number().int().min(1).max(50).default(10).describe("Maximum matches to return."),
 };
