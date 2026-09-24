@@ -4,6 +4,7 @@ import { createToolHandlers, normalizeTraceId } from "../src/tools.js";
 const context = {
   accessToken: "test-token",
   apiUrl: "https://agent.traces.com",
+  namespace: { id: "namespace-1", slug: "traces" },
   transport: "http" as const,
 };
 
@@ -126,7 +127,6 @@ describe("trace tools", () => {
     const output = await createToolHandlers(context, fetchImpl).lookup({
       kind: "user",
       query: "Srihari",
-      namespaceId: "namespace-1",
     });
 
     expect(output).toContain("Srihari");
@@ -205,7 +205,7 @@ describe("trace tools", () => {
     const output = await createToolHandlers(context, fetchImpl).executeTool({
       name: "traces_surfaces_release_version",
       arguments: {
-        surface: { namespaceSlug: "traces", key: "overview" },
+        surface: { key: "overview" },
         version: "1.0.0",
       },
     });
@@ -217,7 +217,7 @@ describe("trace tools", () => {
   test("formats catalog input errors as failed text results", async () => {
     const output = await createToolHandlers(context).executeTool({
       name: "traces_surfaces_archive",
-      arguments: { surface: { namespaceSlug: "traces", key: "" } },
+      arguments: { surface: { key: "" } },
     });
 
     expect(output.isError).toBe(true);

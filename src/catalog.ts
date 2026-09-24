@@ -23,22 +23,11 @@ type CatalogTool = {
   execute: (api: TracesApiClient, input: unknown) => Promise<unknown>;
 };
 
-const namespaceSlugSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .optional()
-  .describe(
-    "Namespace slug. Optional: defaults to the namespace this connection is authorized for.",
-  );
-
 const surfaceRefSchema = z.strictObject({
-  namespaceSlug: namespaceSlugSchema,
   key: z.string().trim().min(1),
 }) satisfies z.ZodType<SurfaceRef>;
 
 const surfacesSearchSchema = z.strictObject({
-  namespaceSlug: namespaceSlugSchema,
   query: z.string().trim().optional(),
   includeArchived: z.boolean().default(false),
   limit: z.number().int().min(1).max(200).default(50),
@@ -47,7 +36,6 @@ const surfacesSearchSchema = z.strictObject({
 const surfacesGetSchema = z.strictObject({ surface: surfaceRefSchema });
 
 const surfacesCreateSchema = z.strictObject({
-  namespaceSlug: namespaceSlugSchema,
   key: z.string().trim().min(1),
   name: z.string().trim().min(1),
   description: z.string().optional(),
@@ -134,20 +122,19 @@ function catalogTool(
 const catalogTools: CatalogTool[] = [
   catalogTool(
     "traces_surfaces_search",
-    "List surfaces managed by a namespace, including private, archived, and unapproved surfaces. Use this to discover a surface key before performing mutations.",
+    "List surfaces in this connection's namespace, including private, archived, and unapproved surfaces. Use this to discover a surface key before performing mutations.",
     surfacesSearchSchema,
     { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (api, input) => {
       const parsed = surfacesSearchSchema.parse(input);
-      const namespaceSlug = api.namespaceSlug(parsed.namespaceSlug);
-      const allSurfaces = await api.listSurfaces(namespaceSlug);
+      const allSurfaces = await api.listSurfaces();
       const filtered = allSurfaces.filter(
         (surface) =>
           (parsed.includeArchived || surface.archivedAt === null) &&
           (parsed.query === undefined || textMatchesSurface(surface, parsed.query)),
       );
       return {
-        namespaceSlug,
+        namespaceSlug: api.namespace.slug,
         surfaces: filtered.slice(0, parsed.limit),
         truncated: filtered.length > parsed.limit,
       };
@@ -162,7 +149,7 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_create",
-    "Create a new private surface in a namespace. The new surface has no uploaded versions or current version.",
+    "Create a new private surface in this connection's namespace. The new surface has no uploaded versions or current version.",
     surfacesCreateSchema,
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (api, input) => api.createSurface(surfacesCreateSchema.parse(input)),

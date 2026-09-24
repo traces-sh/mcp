@@ -69,8 +69,8 @@ Name the server `Traces`, then use **MCP: List Servers** to start and authorize 
 
 ### `traces_search`
 
-Lists traces using deterministic metadata filters including namespace, project, creator ID, time
-range, and result limit. Time ranges and result ordering use source session start
+Lists traces using deterministic metadata filters including project, creator ID, time range, and
+result limit. Time ranges and result ordering use source session start
 (`sourceCreatedAt`), falling back to first server publish (`createdAt`) for legacy traces. Results
 normalize the referenced people once, then use their user slugs in trace rows.
 
@@ -100,8 +100,8 @@ POST the raw HTML file to the returned single-use URL (`curl --data-binary @surf
 call `traces_surfaces_complete_upload` with the returned `artifactId`; it releases the version as
 current unless `release: false`.
 
-Namespace arguments are optional on OAuth connections: the server resolves the token's namespace from
-`GET /v1/session` and rejects requests for any other namespace.
+No tool takes a namespace argument. Every connection is bound to the single namespace its token
+authorizes (resolved from `GET /v1/session`), and all tools operate inside it.
 
 ### `surface_build_instructions`
 
@@ -124,13 +124,16 @@ The stdio transport is available for development and self-hosted environments:
 TRACES_API_TOKEN=... npx -y @traces-sh/mcp
 ```
 
+The token must be a Traces session or OAuth access token; the server resolves its namespace from
+`GET /v1/session` at startup and exits if the token is rejected.
+
 Optional variables:
 
 | Variable | Purpose |
 |---|---|
 | `TRACES_API_URL` | Traces agent API origin; defaults to `https://agent.traces.com` |
 | `TRACES_SURFACES_API_URL` | Surface management API origin; defaults to `https://actions.traces.com` |
-| `TRACES_NAMESPACE_ID` | Restrict stdio searches to one workspace |
+| `MCP_AUTHORIZATION_SERVER` | Traces auth origin used to resolve the token's session; defaults to `https://auth.traces.com` |
 | `TRACES_SURFACE_BUILD_INSTRUCTIONS_URL` | Override the canonical surface-building skill URL for local development |
 
 Tokens are read from the environment, never accepted as MCP tool arguments.

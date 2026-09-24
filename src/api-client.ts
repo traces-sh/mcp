@@ -1,5 +1,6 @@
 import type {
   LookupData,
+  NamespaceRef,
   ServerContext,
   SurfaceManagementRecord,
   SurfaceRef,
@@ -53,22 +54,14 @@ export class TracesApiClient {
     private readonly fetchImpl: Fetch = fetch,
   ) {}
 
-  /** Resolves the namespace a surface operation targets; the bound namespace wins. */
-  namespaceSlug(requested?: string): string {
-    const bound = this.context.namespace?.slug;
-    if (bound && requested && requested !== bound) {
-      throw new TracesApiError(`This connection is limited to the ${bound} namespace.`, 403);
-    }
-    const slug = bound ?? requested;
-    if (!slug) throw new TracesApiError("namespaceSlug is required.", 400);
-    return slug;
+  get namespace(): NamespaceRef {
+    return this.context.namespace;
   }
 
   async list(input: Record<string, unknown>): Promise<TraceListData> {
-    const namespaceId = this.context.namespace?.id ?? this.context.namespaceId;
     return this.post<TraceListData>("/v1/tools/list", {
       ...input,
-      ...(namespaceId ? { namespaceIds: [namespaceId] } : {}),
+      namespaceIds: [this.context.namespace.id],
     });
   }
 
@@ -80,25 +73,20 @@ export class TracesApiClient {
   }
 
   async lookup(input: Record<string, unknown>): Promise<LookupData> {
-    const namespaceId = this.context.namespace?.id ?? this.context.namespaceId;
-    const needsNamespace =
-      input.kind !== "namespace" && input.namespaceId === undefined && input.id === undefined;
+    const needsNamespace = input.kind !== "namespace" && input.id === undefined;
     return this.post<LookupData>("/v1/tools/lookup", {
       ...input,
-      ...(namespaceId && needsNamespace ? { namespaceId } : {}),
+      ...(needsNamespace ? { namespaceId: this.context.namespace.id } : {}),
     });
   }
 
-  async listSurfaces(namespaceSlug?: string): Promise<SurfaceManagementRecord[]> {
-    const data = await this.surfaceRequest<SurfaceListData>(
-      "GET",
-      `/v1/namespaces/${encodeURIComponent(this.namespaceSlug(namespaceSlug))}/surfaces`,
-    );
+  async listSurfaces(): Promise<SurfaceManagementRecord[]> {
+    const data = await this.surfaceRequest<SurfaceListData>("GET", this.surfacesPath());
     return (data.surfaces ?? []).map(normalizeSurface);
   }
 
   async resolveSurface(ref: SurfaceRef): Promise<SurfaceManagementRecord> {
-    const surfaces = await this.listSurfaces(ref.namespaceSlug);
+    const surfaces = await this.listSurfaces();
     const surface = surfaces.find((candidate) => candidate.key === ref.key);
     if (!surface) {
       throw new TracesApiError(`Surface not found: ${ref.key}`, 404);
@@ -107,23 +95,18 @@ export class TracesApiClient {
   }
 
   async createSurface(input: {
-    namespaceSlug?: string;
     key: string;
     name: string;
     description?: string;
     icon?: string;
   }): Promise<SurfaceManagementRecord> {
-    const namespaceSlug = this.namespaceSlug(input.namespaceSlug);
-    await this.surfacePost<{ id: string }>(
-      `/v1/namespaces/${encodeURIComponent(namespaceSlug)}/surfaces`,
-      {
-        key: input.key,
-        name: input.name,
-        ...(input.description !== undefined ? { description: input.description } : {}),
-        ...(input.icon !== undefined ? { icon: input.icon } : {}),
-      },
-    );
-    return this.resolveSurface({ namespaceSlug, key: input.key });
+    await this.surfacePost<{ id: string }>(this.surfacesPath(), {
+      key: input.key,
+      name: input.name,
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.icon !== undefined ? { icon: input.icon } : {}),
+    });
+    return this.resolveSurface({ key: input.key });
   }
 
   async updateSurface(
@@ -154,13 +137,12 @@ export class TracesApiClient {
     byteSize: number,
     createAs?: { name: string; description?: string; icon?: string },
   ): Promise<{ upload: SurfaceUploadTarget; created: boolean }> {
-    const namespaceSlug = this.namespaceSlug(ref.namespaceSlug);
-    const existing = (await this.listSurfaces(namespaceSlug)).find((s) => s.key === ref.key);
+    const existing = (await this.listSurfaces()).find((s) => s.key === ref.key);
     if (!existing && !createAs) {
       throw new TracesApiError(`Surface not found: ${ref.key}. Pass name to create it.`, 404);
     }
     if (!existing && createAs) {
-      await this.createSurface({ namespaceSlug, key: ref.key, ...createAs });
+      await this.createSurface({ key: ref.key, ...createAs });
     }
     const data = await this.surfacePost<{ upload: SurfaceUploadTarget }>(
       `/v1/surfaces/${encodeURIComponent(ref.key)}/versions/uploads`,
@@ -191,6 +173,10 @@ export class TracesApiClient {
     await this.resolveSurface(ref);
     await this.surfacePatch(`/v1/surfaces/${encodeURIComponent(ref.key)}`, { archived });
     return this.resolveSurface(ref);
+  }
+
+  private surfacesPath(): string {
+    return `/v1/namespaces/${encodeURIComponent(this.context.namespace.slug)}/surfaces`;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {

@@ -7,6 +7,12 @@ const options = {
   publicUrl: "https://mcp.traces.com",
 };
 
+const sessionResponse = () =>
+  Response.json({
+    ok: true,
+    data: { activeNamespace: { id: "namespace-1", slug: "traces", role: "admin" } },
+  });
+
 describe("HTTP transport", () => {
   test("publishes OAuth protected-resource metadata", async () => {
     const response = await createHttpHandler(options)(
@@ -56,7 +62,7 @@ describe("HTTP transport", () => {
     const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://auth.traces.com/v1/session");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer valid-token");
-      return Response.json({ ok: true, data: {} });
+      return sessionResponse();
     });
     const handler = createHttpHandler({ ...options, fetchImpl });
     const response = await handler(
@@ -87,7 +93,7 @@ describe("HTTP transport", () => {
   });
 
   test("advertises the lookup tool", async () => {
-    const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
+    const fetchImpl = mock(async () => sessionResponse());
     const handler = createHttpHandler({ ...options, fetchImpl });
     const response = await handler(
       new Request("https://mcp.traces.com", {
@@ -119,6 +125,50 @@ describe("HTTP transport", () => {
     );
   });
 
+  test("exposes no namespace inputs on any tool", async () => {
+    const fetchImpl = mock(async () => sessionResponse());
+    const handler = createHttpHandler({ ...options, fetchImpl });
+    const call = (body: Record<string, unknown>) =>
+      handler(
+        new Request("https://mcp.traces.com", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            authorization: "Bearer valid-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 4, ...body }),
+        }),
+      ).then((response) => response.json());
+
+    const listed = await call({ method: "tools/list", params: {} });
+    const catalog = await call({
+      method: "tools/call",
+      params: { name: "traces_search_tools", arguments: { query: "surface", limit: 20 } },
+    });
+    const schemas = [
+      ...listed.result.tools.map((tool: { inputSchema: unknown }) => tool.inputSchema),
+      ...catalog.result.structuredContent.results.map(
+        (tool: { inputSchema: unknown }) => tool.inputSchema,
+      ),
+    ];
+
+    expect(schemas.length).toBeGreaterThan(10);
+    expect(JSON.stringify(schemas)).not.toMatch(/namespace(Id|Ids|Slug)/);
+  });
+
+  test("rejects a token whose session has no namespace", async () => {
+    const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
+    const response = await createHttpHandler({ ...options, fetchImpl })(
+      new Request("https://mcp.traces.com", {
+        method: "POST",
+        headers: { authorization: "Bearer unbound-token" },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+  });
+
   test("rejects an invalid token", async () => {
     const fetchImpl = mock(async () => new Response("Unauthorized", { status: 401 }));
     const response = await createHttpHandler({ ...options, fetchImpl })(
@@ -139,7 +189,7 @@ describe("HTTP transport", () => {
     });
     const fetchImpl = mock(async () => {
       await gate;
-      return Response.json({ ok: true, data: {} });
+      return sessionResponse();
     });
     const handler = createHttpHandler({ ...options, fetchImpl });
     const request = () =>
@@ -165,7 +215,7 @@ describe("HTTP transport", () => {
 
   test("reuses a token validation within its TTL and expires it afterwards", async () => {
     let clock = 0;
-    const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
+    const fetchImpl = mock(async () => sessionResponse());
     const validate = createTokenValidator(options.authorizationServer, fetchImpl, () => clock);
 
     expect((await validate("token-a")).status).toBe("valid");
@@ -180,7 +230,9 @@ describe("HTTP transport", () => {
 
   test("does not cache an authentication service outage", async () => {
     const statuses = [503, 200];
-    const fetchImpl = mock(async () => new Response("", { status: statuses.shift() ?? 200 }));
+    const fetchImpl = mock(async () =>
+      statuses.shift() === 503 ? new Response("", { status: 503 }) : sessionResponse(),
+    );
     const validate = createTokenValidator(options.authorizationServer, fetchImpl);
 
     expect((await validate("token")).status).toBe("unavailable");

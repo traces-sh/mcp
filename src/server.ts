@@ -16,11 +16,7 @@ function instructions(context: ServerContext): string {
     "Use traces_lookup before traces_search when the user names a person or namespace; do not guess opaque IDs.",
     "If lookup is ambiguous, ask the user to disambiguate before filtering.",
     "Search results begin with a normalized People table. Use its display names in answers and its IDs only for tool filters.",
-    ...(context.namespace
-      ? [
-          `This connection is scoped to the ${context.namespace.slug} namespace; never ask the user for a namespace.`,
-        ]
-      : []),
+    `This connection is scoped to the ${context.namespace.slug} namespace; never ask the user for a namespace.`,
     "To build or publish a surface, call surface_build_instructions first, then traces_search_tools with query 'surface' to find traces_surfaces_prepare_upload.",
   ].join(" ");
 }
