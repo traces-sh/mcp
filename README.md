@@ -107,9 +107,9 @@ invalid input fails before any request:
 | Field | Rule |
 | --- | --- |
 | `key` (new surfaces) | Permanent and globally unique. 3–48 lowercase letters and digits, words joined by single hyphens. Keys starting with `traces-` or `official-`, and a few official-sounding names, are reserved for the Traces team; the API rejects them. |
-| `name` | 1–80 characters |
-| `description` | At most 500 characters |
-| `icon` | Lucide icon name in kebab-case, at most 64 characters; unknown names fall back to the default icon |
+| `name` | 1–80 characters, trimmed |
+| `description` | At most 500 characters, trimmed |
+| `icon` | One of the Traces icon names (Lucide names in kebab-case, e.g. `chart-pie`), listed in the tool's input schema; other names are rejected |
 | `version` | Semantic version without prerelease, e.g. `1.0.0` |
 | `byteSize` | Exact size of the HTML file, at most 16 MiB |
 

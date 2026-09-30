@@ -239,7 +239,7 @@ describe("trace tools", () => {
       key: { minLength: 3, maxLength: 48, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
       name: { maxLength: 80 },
       description: { maxLength: 500 },
-      icon: { maxLength: 64 },
+      icon: { enum: expect.arrayContaining(["chart-pie", "workflow", "zap"]) },
     });
     for (const result of results) {
       for (const [field, schema] of Object.entries(result.inputSchema.properties)) {
@@ -269,6 +269,11 @@ describe("trace tools", () => {
       arguments: { key: "tool-failures", name: "n".repeat(81) },
     });
     expect(longName.isError).toBe(true);
+    const unknownIcon = await handlers.executeTool({
+      name: "traces_surfaces_create",
+      arguments: { key: "tool-failures", name: "Tool failures", icon: "not-an-icon" },
+    });
+    expect(unknownIcon.isError).toBe(true);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

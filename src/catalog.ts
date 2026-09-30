@@ -31,7 +31,6 @@ const MIN_SURFACE_KEY_LENGTH = 3;
 const MAX_SURFACE_KEY_LENGTH = 48;
 const MAX_SURFACE_NAME_LENGTH = 80;
 const MAX_SURFACE_DESCRIPTION_LENGTH = 500;
-const MAX_SURFACE_ICON_LENGTH = 64;
 const MAX_SURFACE_HTML_BYTES = 16 * 1024 * 1024;
 const SURFACE_KEY_RULE = `${MIN_SURFACE_KEY_LENGTH}-${MAX_SURFACE_KEY_LENGTH} lowercase letters and digits, words joined by single hyphens`;
 
@@ -56,18 +55,162 @@ const surfaceNameSchema = z
 
 const surfaceDescriptionSchema = z
   .string()
+  .trim()
   .max(MAX_SURFACE_DESCRIPTION_LENGTH)
   .describe(
     `One or two sentences on what the surface shows, used in the marketplace. At most ${MAX_SURFACE_DESCRIPTION_LENGTH} characters.`,
   );
 
+// Mirrors SURFACE_ICON_NAMES in traces packages/shared/src/surface.ts; the API rejects other names.
+const SURFACE_ICON_NAMES = [
+  "activity",
+  "alarm-clock",
+  "at-sign",
+  "blocks",
+  "book",
+  "book-alert",
+  "book-check",
+  "book-copy",
+  "book-down",
+  "book-key",
+  "book-lock",
+  "book-marked",
+  "book-open-text",
+  "book-search",
+  "book-type",
+  "book-up",
+  "box",
+  "boxes",
+  "brick-wall",
+  "brick-wall-fire",
+  "brick-wall-shield",
+  "briefcase",
+  "briefcase-business",
+  "brush",
+  "brush-cleaning",
+  "bug",
+  "building",
+  "calendar",
+  "chart-bar-decreasing",
+  "chart-bar-increasing",
+  "chart-no-axes-column",
+  "chart-no-axes-column-increasing",
+  "chart-no-axes-combined",
+  "chart-no-axes-gantt",
+  "chart-pie",
+  "chart-scatter",
+  "circle-arrow-down",
+  "circle-arrow-right",
+  "circle-arrow-up",
+  "circle-dashed",
+  "circle-dollar-sign",
+  "circle-dot",
+  "circle-dot-dashed",
+  "circle-user",
+  "clock",
+  "cloud-download",
+  "cloud-upload",
+  "code-xml",
+  "component",
+  "container",
+  "cpu",
+  "database",
+  "database-backup",
+  "eye",
+  "eye-closed",
+  "file",
+  "file-box",
+  "file-braces",
+  "file-chart-column",
+  "file-code",
+  "file-diff",
+  "file-down",
+  "file-terminal",
+  "file-up",
+  "fingerprint-pattern",
+  "flag",
+  "flask-conical",
+  "folder-down",
+  "folder-up",
+  "gallery-vertical-end",
+  "gauge",
+  "git-branch",
+  "git-branch-minus",
+  "git-branch-plus",
+  "git-commit-horizontal",
+  "git-commit-vertical",
+  "git-compare",
+  "git-compare-arrows",
+  "git-fork",
+  "git-graph",
+  "git-merge",
+  "git-merge-conflict",
+  "git-pull-request",
+  "git-pull-request-arrow",
+  "git-pull-request-closed",
+  "git-pull-request-create",
+  "git-pull-request-create-arrow",
+  "git-pull-request-draft",
+  "globe",
+  "graduation-cap",
+  "handshake",
+  "heart",
+  "heart-pulse",
+  "key",
+  "landmark",
+  "library",
+  "lightbulb",
+  "line-squiggle",
+  "locate",
+  "lock",
+  "megaphone",
+  "milestone",
+  "monitor",
+  "network",
+  "notebook",
+  "palette",
+  "paperclip",
+  "plug",
+  "receipt-text",
+  "rocket",
+  "rotate-ccw",
+  "scale",
+  "scan-box",
+  "scan-eye",
+  "scan-search",
+  "scroll-text",
+  "search",
+  "search-check",
+  "search-code",
+  "shield",
+  "shield-alert",
+  "shield-lock",
+  "signature",
+  "smartphone",
+  "speech",
+  "square-function",
+  "star",
+  "store",
+  "swatch-book",
+  "telescope",
+  "test-tube-diagonal",
+  "text-search",
+  "thumbs-up",
+  "tool-case",
+  "trending-down",
+  "trending-up",
+  "user",
+  "user-shield",
+  "users",
+  "wand",
+  "workflow",
+  "zap",
+] as const;
+
 const surfaceIconSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(MAX_SURFACE_ICON_LENGTH)
+  .enum(SURFACE_ICON_NAMES)
   .describe(
-    `Lucide icon name in kebab-case (e.g. "activity", "workflow", "zap"). Names outside the Traces icon picker fall back to the default icon. At most ${MAX_SURFACE_ICON_LENGTH} characters.`,
+    'Icon shown on the trace tab and in the marketplace: one of the Traces icon names (Lucide names in kebab-case, e.g. "chart-pie", "workflow", "zap"). Pick the closest match; any other name is rejected.',
   );
 
 const surfaceVersionSchema = z
@@ -121,7 +264,7 @@ const surfacesPrepareUploadSchema = z.strictObject({
     ),
   icon: surfaceIconSchema
     .optional()
-    .describe("Lucide icon name in kebab-case. Used only when creating the surface."),
+    .describe("Icon from the Traces icon names. Used only when creating the surface."),
   version: surfaceVersionSchema.describe(
     "New semantic version, e.g. 1.0.0. Must not already exist on the surface.",
   ),
@@ -307,7 +450,7 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_update",
-    "Update surface metadata only: name (up to 80 characters), description (up to 500), and icon. Surface keys are immutable. This operation cannot change the current version, visibility, or archived state.",
+    "Update surface metadata only: name (up to 80 characters), description (up to 500), and icon (one of the Traces icon names). Surface keys are immutable. This operation cannot change the current version, visibility, or archived state.",
     surfacesUpdateSchema,
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (api, input) => {
