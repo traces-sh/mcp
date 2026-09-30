@@ -226,6 +226,79 @@ describe("trace tools", () => {
     ]);
   });
 
+  test("documents every surface input with the API's limits", async () => {
+    const output = await createToolHandlers(context).searchTools({ query: "surfaces", limit: 20 });
+    const results = (
+      output.structuredContent as {
+        results: { name: string; inputSchema: { properties: Record<string, unknown> } }[];
+      }
+    ).results;
+
+    const create = results.find((result) => result.name === "traces_surfaces_create");
+    expect(create?.inputSchema.properties).toMatchObject({
+      key: { minLength: 3, maxLength: 48, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      name: { maxLength: 80 },
+      description: { maxLength: 500 },
+      icon: { enum: expect.arrayContaining(["chart-pie", "workflow", "zap"]) },
+    });
+    for (const result of results) {
+      for (const [field, schema] of Object.entries(result.inputSchema.properties)) {
+        expect({ tool: result.name, field, schema }).toMatchObject({
+          schema: { description: expect.any(String) },
+        });
+      }
+    }
+  });
+
+  test("rejects invalid surface keys and metadata before calling the API", async () => {
+    const fetchImpl = mock(async () => Response.json({ ok: true, data: {} }));
+    const handlers = createToolHandlers(context, fetchImpl);
+
+    for (const key of ["ab", "Tool_Failures", "double--hyphen", "x".repeat(49)]) {
+      const output = await handlers.executeTool({
+        name: "traces_surfaces_create",
+        arguments: { key, name: "Tool failures" },
+      });
+      expect(output.isError).toBe(true);
+      expect(output.content).toMatchObject([
+        { type: "text", text: expect.stringContaining("lowercase letters and digits") },
+      ]);
+    }
+    const longName = await handlers.executeTool({
+      name: "traces_surfaces_create",
+      arguments: { key: "tool-failures", name: "n".repeat(81) },
+    });
+    expect(longName.isError).toBe(true);
+    const unknownIcon = await handlers.executeTool({
+      name: "traces_surfaces_create",
+      arguments: { key: "tool-failures", name: "Tool failures", icon: "not-an-icon" },
+    });
+    expect(unknownIcon.isError).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test("passes the API's reason through when it rejects a reserved key", async () => {
+    const fetchImpl = mock(async () =>
+      Response.json(
+        {
+          ok: false,
+          error: { code: "invalid_request", message: "Surface key is reserved: traces-overview" },
+        },
+        { status: 400 },
+      ),
+    );
+
+    const output = await createToolHandlers(context, fetchImpl).executeTool({
+      name: "traces_surfaces_create",
+      arguments: { key: "traces-overview", name: "Overview" },
+    });
+
+    expect(output.isError).toBe(true);
+    expect(output.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("Surface key is reserved: traces-overview") },
+    ]);
+  });
+
   test("completing an upload leaves the version unreleased and returns a pinned preview link", async () => {
     const surface = { id: "surface-1", key: "overview", name: "Overview", currentVersion: null };
     const calls: string[] = [];

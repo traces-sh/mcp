@@ -24,50 +24,263 @@ type CatalogTool = {
   execute: (api: TracesApiClient, input: unknown) => Promise<unknown>;
 };
 
-const surfaceRefSchema = z.strictObject({
-  key: z.string().trim().min(1),
-}) satisfies z.ZodType<SurfaceRef>;
+// Mirrors the Traces API's surface validation (packages/shared/src/surface.ts in traces) so agents
+// get a precise error before a round trip. The API stays authoritative, including reserved keys.
+const SURFACE_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MIN_SURFACE_KEY_LENGTH = 3;
+const MAX_SURFACE_KEY_LENGTH = 48;
+const MAX_SURFACE_NAME_LENGTH = 80;
+const MAX_SURFACE_DESCRIPTION_LENGTH = 500;
+const MAX_SURFACE_HTML_BYTES = 16 * 1024 * 1024;
+const SURFACE_KEY_RULE = `${MIN_SURFACE_KEY_LENGTH}-${MAX_SURFACE_KEY_LENGTH} lowercase letters and digits, words joined by single hyphens`;
+
+const newSurfaceKeySchema = z
+  .string()
+  .trim()
+  .min(MIN_SURFACE_KEY_LENGTH, `Surface key must be ${SURFACE_KEY_RULE}.`)
+  .max(MAX_SURFACE_KEY_LENGTH, `Surface key must be ${SURFACE_KEY_RULE}.`)
+  .regex(SURFACE_KEY_PATTERN, `Surface key must be ${SURFACE_KEY_RULE}.`)
+  .describe(
+    `Permanent, globally unique key for a new surface; it appears in trace links as ?surface=<key> and can never be changed. ${SURFACE_KEY_RULE} (e.g. "tool-failures"). Keys starting with "traces-" or "official-", and a few official-sounding names, are reserved for the Traces team; the API rejects them.`,
+  );
+
+const surfaceNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_SURFACE_NAME_LENGTH)
+  .describe(
+    `Display name shown on the trace tab and in the marketplace. 1-${MAX_SURFACE_NAME_LENGTH} characters.`,
+  );
+
+const surfaceDescriptionSchema = z
+  .string()
+  .trim()
+  .max(MAX_SURFACE_DESCRIPTION_LENGTH)
+  .describe(
+    `One or two sentences on what the surface shows, used in the marketplace. At most ${MAX_SURFACE_DESCRIPTION_LENGTH} characters.`,
+  );
+
+// Mirrors SURFACE_ICON_NAMES in traces packages/shared/src/surface.ts; the API rejects other names.
+const SURFACE_ICON_NAMES = [
+  "activity",
+  "alarm-clock",
+  "at-sign",
+  "blocks",
+  "book",
+  "book-alert",
+  "book-check",
+  "book-copy",
+  "book-down",
+  "book-key",
+  "book-lock",
+  "book-marked",
+  "book-open-text",
+  "book-search",
+  "book-type",
+  "book-up",
+  "box",
+  "boxes",
+  "brick-wall",
+  "brick-wall-fire",
+  "brick-wall-shield",
+  "briefcase",
+  "briefcase-business",
+  "brush",
+  "brush-cleaning",
+  "bug",
+  "building",
+  "calendar",
+  "chart-bar-decreasing",
+  "chart-bar-increasing",
+  "chart-no-axes-column",
+  "chart-no-axes-column-increasing",
+  "chart-no-axes-combined",
+  "chart-no-axes-gantt",
+  "chart-pie",
+  "chart-scatter",
+  "circle-arrow-down",
+  "circle-arrow-right",
+  "circle-arrow-up",
+  "circle-dashed",
+  "circle-dollar-sign",
+  "circle-dot",
+  "circle-dot-dashed",
+  "circle-user",
+  "clock",
+  "cloud-download",
+  "cloud-upload",
+  "code-xml",
+  "component",
+  "container",
+  "cpu",
+  "database",
+  "database-backup",
+  "eye",
+  "eye-closed",
+  "file",
+  "file-box",
+  "file-braces",
+  "file-chart-column",
+  "file-code",
+  "file-diff",
+  "file-down",
+  "file-terminal",
+  "file-up",
+  "fingerprint-pattern",
+  "flag",
+  "flask-conical",
+  "folder-down",
+  "folder-up",
+  "gallery-vertical-end",
+  "gauge",
+  "git-branch",
+  "git-branch-minus",
+  "git-branch-plus",
+  "git-commit-horizontal",
+  "git-commit-vertical",
+  "git-compare",
+  "git-compare-arrows",
+  "git-fork",
+  "git-graph",
+  "git-merge",
+  "git-merge-conflict",
+  "git-pull-request",
+  "git-pull-request-arrow",
+  "git-pull-request-closed",
+  "git-pull-request-create",
+  "git-pull-request-create-arrow",
+  "git-pull-request-draft",
+  "globe",
+  "graduation-cap",
+  "handshake",
+  "heart",
+  "heart-pulse",
+  "key",
+  "landmark",
+  "library",
+  "lightbulb",
+  "line-squiggle",
+  "locate",
+  "lock",
+  "megaphone",
+  "milestone",
+  "monitor",
+  "network",
+  "notebook",
+  "palette",
+  "paperclip",
+  "plug",
+  "receipt-text",
+  "rocket",
+  "rotate-ccw",
+  "scale",
+  "scan-box",
+  "scan-eye",
+  "scan-search",
+  "scroll-text",
+  "search",
+  "search-check",
+  "search-code",
+  "shield",
+  "shield-alert",
+  "shield-lock",
+  "signature",
+  "smartphone",
+  "speech",
+  "square-function",
+  "star",
+  "store",
+  "swatch-book",
+  "telescope",
+  "test-tube-diagonal",
+  "text-search",
+  "thumbs-up",
+  "tool-case",
+  "trending-down",
+  "trending-up",
+  "user",
+  "user-shield",
+  "users",
+  "wand",
+  "workflow",
+  "zap",
+] as const;
+
+const surfaceIconSchema = z
+  .enum(SURFACE_ICON_NAMES)
+  .describe(
+    'Icon shown on the trace tab and in the marketplace: one of the Traces icon names (Lucide names in kebab-case, e.g. "chart-pie", "workflow", "zap"). Pick the closest match; any other name is rejected.',
+  );
+
+const surfaceVersionSchema = z
+  .string()
+  .trim()
+  .regex(/^\d+\.\d+\.\d+$/, "Version must be a semantic version without prerelease, e.g. 1.0.0.")
+  .describe("Semantic version without prerelease, e.g. 1.0.0.");
+
+const surfaceRefSchema = z
+  .strictObject({
+    key: z
+      .string()
+      .trim()
+      .min(1)
+      .describe("Key of a surface in this namespace, as listed by traces_surfaces_search."),
+  })
+  .describe("The surface to act on.") satisfies z.ZodType<SurfaceRef>;
 
 const surfacesSearchSchema = z.strictObject({
-  query: z.string().trim().optional(),
-  includeArchived: z.boolean().default(false),
-  limit: z.number().int().min(1).max(200).default(50),
+  query: z
+    .string()
+    .trim()
+    .optional()
+    .describe("Words that must all appear in the key, name, or description. Omit to list all."),
+  includeArchived: z.boolean().default(false).describe("Include archived surfaces."),
+  limit: z.number().int().min(1).max(200).default(50).describe("Maximum surfaces to return."),
 });
 
 const surfacesGetSchema = z.strictObject({ surface: surfaceRefSchema });
 
 const surfacesCreateSchema = z.strictObject({
-  key: z.string().trim().min(1),
-  name: z.string().trim().min(1),
-  description: z.string().optional(),
-  icon: z.string().optional(),
+  key: newSurfaceKeySchema,
+  name: surfaceNameSchema,
+  description: surfaceDescriptionSchema.optional(),
+  icon: surfaceIconSchema.optional(),
 });
 
 const surfacesPrepareUploadSchema = z.strictObject({
-  surface: surfaceRefSchema,
-  name: z
-    .string()
-    .trim()
-    .min(1)
+  surface: surfaceRefSchema.describe(
+    `The surface to upload to. If the key does not exist yet, pass name to create it; a new key must be ${SURFACE_KEY_RULE}.`,
+  ),
+  name: surfaceNameSchema
     .optional()
-    .describe("Display name. Required only when the surface key does not exist yet; creates it."),
-  description: z.string().optional(),
-  icon: z.string().optional(),
-  version: z
-    .string()
-    .trim()
-    .min(1)
-    .describe("New version label, e.g. 1.0.0. Must not already exist."),
+    .describe(
+      `Display name, 1-${MAX_SURFACE_NAME_LENGTH} characters. Required only when the surface key does not exist yet; creates it. Ignored for an existing surface.`,
+    ),
+  description: surfaceDescriptionSchema
+    .optional()
+    .describe(
+      `Marketplace description, at most ${MAX_SURFACE_DESCRIPTION_LENGTH} characters. Used only when creating the surface.`,
+    ),
+  icon: surfaceIconSchema
+    .optional()
+    .describe("Icon from the Traces icon names. Used only when creating the surface."),
+  version: surfaceVersionSchema.describe(
+    "New semantic version, e.g. 1.0.0. Must not already exist on the surface.",
+  ),
   byteSize: z
     .number()
     .int()
     .positive()
-    .describe("Exact byte size of the HTML file (wc -c). The upload is rejected if it differs."),
+    .max(MAX_SURFACE_HTML_BYTES, "Surface HTML must be at most 16 MiB.")
+    .describe(
+      "Exact byte size of the HTML file (wc -c), at most 16 MiB. The upload is rejected if it differs.",
+    ),
 });
 
 const surfacesCompleteUploadSchema = z.strictObject({
   surface: surfaceRefSchema,
-  version: z.string().trim().min(1),
+  version: surfaceVersionSchema.describe("The version passed to traces_surfaces_prepare_upload."),
   artifactId: z.string().trim().min(1).describe("data.artifactId from the upload response."),
   release: z
     .boolean()
@@ -79,16 +292,28 @@ const surfacesCompleteUploadSchema = z.strictObject({
 
 const surfacesReleaseVersionSchema = z.strictObject({
   surface: surfaceRefSchema,
-  version: z.string().trim().min(1),
-  visibility: z.enum(["private", "public"]).optional(),
+  version: surfaceVersionSchema.describe(
+    "An uploaded version to make current. It must have been completed with traces_surfaces_complete_upload.",
+  ),
+  visibility: z
+    .enum(["private", "public"])
+    .optional()
+    .describe(
+      "private: only namespace members see the surface. public: listed in the marketplace and usable on any trace. Changing it requires a namespace admin. Omit to keep the current visibility.",
+    ),
 });
 
 const surfacesUpdateSchema = z
   .strictObject({
     surface: surfaceRefSchema,
-    name: z.string().trim().min(1).optional(),
-    description: z.string().nullable().optional(),
-    icon: z.string().optional(),
+    name: surfaceNameSchema.optional(),
+    description: surfaceDescriptionSchema
+      .nullable()
+      .optional()
+      .describe(
+        `New marketplace description, at most ${MAX_SURFACE_DESCRIPTION_LENGTH} characters. null removes it; omit to keep it.`,
+      ),
+    icon: surfaceIconSchema.optional(),
   })
   .refine(
     (input) =>
@@ -152,7 +377,7 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_create",
-    "Create a new private surface in this connection's namespace. The new surface has no uploaded versions or current version.",
+    "Create a new private surface in this connection's namespace. The new surface has no uploaded versions or current version. The key is permanent and global: lowercase words joined by single hyphens, 3-48 characters, and not reserved for the Traces team. Prefer traces_surfaces_prepare_upload with name, which creates the surface and prepares its first upload in one step.",
     surfacesCreateSchema,
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (api, input) => api.createSurface(surfacesCreateSchema.parse(input)),
@@ -225,7 +450,7 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_update",
-    "Update surface metadata only. Surface keys are immutable. This operation cannot change the current version, visibility, or archived state.",
+    "Update surface metadata only: name (up to 80 characters), description (up to 500), and icon (one of the Traces icon names). Surface keys are immutable. This operation cannot change the current version, visibility, or archived state.",
     surfacesUpdateSchema,
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (api, input) => {

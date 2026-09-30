@@ -97,8 +97,23 @@ again at execution time, and the resulting surface management record is returned
 Surface HTML is never passed as an MCP tool argument. To publish, call
 `traces_surfaces_prepare_upload` (creates the surface when `name` is given and the key is new),
 POST the raw HTML file to the returned single-use URL (`curl --data-binary @surface.html`), then
-call `traces_surfaces_complete_upload` with the returned `artifactId`; it releases the version as
-current unless `release: false`.
+call `traces_surfaces_complete_upload` with the returned `artifactId`. That leaves the current
+version untouched and returns a `previewUrl` for trying the new one; release it with `release: true`
+or `traces_surfaces_release_version`.
+
+Every surface operation's input schema documents each field and mirrors the Traces API's rules, so
+invalid input fails before any request:
+
+| Field | Rule |
+| --- | --- |
+| `key` (new surfaces) | Permanent and globally unique. 3–48 lowercase letters and digits, words joined by single hyphens. Keys starting with `traces-` or `official-`, and a few official-sounding names, are reserved for the Traces team; the API rejects them. |
+| `name` | 1–80 characters, trimmed |
+| `description` | At most 500 characters, trimmed |
+| `icon` | One of the Traces icon names (Lucide names in kebab-case, e.g. `chart-pie`), listed in the tool's input schema; other names are rejected |
+| `version` | Semantic version without prerelease, e.g. `1.0.0` |
+| `byteSize` | Exact size of the HTML file, at most 16 MiB |
+
+The API stays authoritative. When it rejects an input, its reason is returned as the tool error.
 
 No tool takes a namespace argument. Every connection is bound to the single namespace its token
 authorizes (resolved from `GET /v1/session`), and all tools operate inside it.
