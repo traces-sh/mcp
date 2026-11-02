@@ -14,8 +14,8 @@ The production endpoint is:
 https://mcp.traces.com
 ```
 
-Authorize the client in the browser when it connects. The server requests `traces:read` and
-`surfaces:write` access, publishes OAuth protected-resource metadata at
+Authorize the client in the browser when it connects. The server supports `traces:read`,
+`surfaces:write`, and `traces:write` access, publishes OAuth protected-resource metadata at
 `/.well-known/oauth-protected-resource`, and validates bearer tokens against the Traces
 authorization server.
 
@@ -83,6 +83,27 @@ Use it before `traces_search` when a request names a person or workspace.
 
 Reads a bounded event window from a trace. User and assistant text are returned by default; tool
 calls and results require explicit opt-in.
+
+### `traces_upsert`
+
+Creates or updates a trace and appends messages in one call. Requires the `traces:write` scope.
+Pass `trace` fields on the first call (`agentId` is required); later calls can send only
+`messages`. Traces default to `private` and are created by the connected user.
+
+```json
+{
+  "externalId": "skillhub-<runId>",
+  "trace": { "agentId": "skill-hub", "title": "Call prep", "sourceCreatedAt": "2026-10-29T15:04:00Z" },
+  "messages": [
+    { "externalId": "skillhub-<runId>-0001", "role": "assistant", "order": 1, "textContent": "..." }
+  ]
+}
+```
+
+Returns `{ traceId, externalId, namespace, appended }`. `traceId` is `null` when the call only
+appends messages. Both the trace and its messages are keyed by `externalId`, so retrying a call
+never duplicates data. Failures return `{ error: { message, retryable, status } }`. Retry only when
+`retryable` is `true` (rate limits, server errors, and network failures).
 
 ### `traces_search_tools`
 

@@ -24,6 +24,24 @@ type SurfaceMutation = {
   icon?: string;
 };
 
+export type TraceFields = {
+  agentId: string;
+  title?: string;
+  projectName?: string;
+  projectPath?: string;
+  model?: string;
+  visibility: "private" | "direct" | "public";
+  sourceCreatedAt?: number;
+};
+
+export type TraceMessage = {
+  externalId: string;
+  role: "user" | "assistant" | "system";
+  textContent: string;
+  order?: number;
+  timestamp?: number;
+};
+
 export class TracesApiError extends Error {
   constructor(
     message: string,
@@ -175,6 +193,26 @@ export class TracesApiClient {
     return this.resolveSurface(ref);
   }
 
+  /** Creates or updates a trace in this connection's namespace. Retrying with the same input is a no-op. */
+  async upsertTrace(externalId: string, fields: TraceFields): Promise<{ id: string }> {
+    const data = await this.actionsRequest<{ trace: { id: string } }>(
+      "PUT",
+      `/v1/traces/${encodeURIComponent(externalId)}`,
+      fields,
+    );
+    return { id: data.trace.id };
+  }
+
+  /** Appends messages to a trace. Messages are keyed by externalId, so retries do not duplicate them. */
+  async appendMessages(externalId: string, messages: TraceMessage[]): Promise<number> {
+    const data = await this.actionsRequest<{ messages: number }>(
+      "POST",
+      `/v1/traces/${encodeURIComponent(externalId)}/messages/batch`,
+      { messages },
+    );
+    return data.messages;
+  }
+
   private surfacesPath(): string {
     return `/v1/namespaces/${encodeURIComponent(this.context.namespace.slug)}/surfaces`;
   }
@@ -196,11 +234,20 @@ export class TracesApiClient {
     path: string,
     body?: unknown,
   ): Promise<T> {
+    return this.actionsRequest<T>(method, path, body);
+  }
+
+  /** Requests to the Traces HTTP actions API, which serves surface management and trace writes. */
+  private async actionsRequest<T>(
+    method: "GET" | "POST" | "PATCH" | "PUT",
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
     return this.request<T>(method, path, body, this.context.surfaceApiUrl ?? this.context.apiUrl);
   }
 
   private async request<T>(
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "PUT",
     path: string,
     body?: unknown,
     baseUrl = this.context.apiUrl,

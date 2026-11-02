@@ -9,6 +9,7 @@ import {
   searchInputSchema,
 } from "./tools.js";
 import type { ServerContext } from "./types.js";
+import { upsertInputSchema } from "./upsert.js";
 
 const VERSION = "0.1.0";
 function instructions(context: ServerContext): string {
@@ -17,6 +18,7 @@ function instructions(context: ServerContext): string {
     "If lookup is ambiguous, ask the user to disambiguate before filtering.",
     "Search results begin with a normalized People table. Use its display names in answers and its IDs only for tool filters.",
     `This connection is scoped to the ${context.namespace.slug} namespace; never ask the user for a namespace.`,
+    "Only call traces_upsert when the user or the calling app explicitly asks to save content to Traces.",
     "To build a surface, call surface_build_instructions first. Use traces_search_tools with query 'surface' to find the upload tools; traces_surfaces_complete_upload returns a previewUrl that shows the uploaded version on the user's latest trace without making it current. Share that link, and only call traces_surfaces_release_version once the user is happy.",
   ].join(" ");
 }
@@ -103,6 +105,23 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
         return result(`Trace read failed: ${message(error)}`, true);
       }
     },
+  );
+
+  server.registerTool(
+    "traces_upsert",
+    {
+      title: "Save Trace",
+      description:
+        "Create or update a trace in this connection's namespace and append messages in one call. Traces are private by default and created by the connected user. Calls are idempotent on trace and message externalId, so retry any failure whose result has error.retryable set to true. Requires the traces:write scope.",
+      inputSchema: upsertInputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (input) => tools.upsert(input),
   );
 
   server.registerTool(
