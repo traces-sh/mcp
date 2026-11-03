@@ -29,31 +29,29 @@ function api(responses: Response[]) {
 const ok = (data: unknown) => Response.json({ ok: true, data });
 const fail = (status: number, message: string) =>
   Response.json({ ok: false, error: { message } }, { status });
+const trace = { agentId: "skill-hub", visibility: "private" as const };
+const message = (externalId: string) => ({
+  externalId,
+  role: "assistant" as const,
+  textContent: "brief",
+});
 
 describe("traces_upsert", () => {
-  test("creates a private trace and appends messages on the first call", async () => {
+  test("creates a trace and appends messages on the first call", async () => {
     const { calls, tools } = api([ok({ trace: { id: "trace-doc-1" } }), ok({ messages: 1 })]);
 
     const result = await tools.upsert({
       externalId: "skillhub-run-1",
-      trace: {
-        agentId: "skill-hub",
-        title: "Call prep",
-        sourceCreatedAt: "2026-10-29T15:04:00Z",
-      },
+      namespace: "clay",
+      trace: { ...trace, title: "Call prep", sourceCreatedAt: "2026-10-29T15:04:00Z" },
       messages: [
-        {
-          externalId: "skillhub-run-1-0001",
-          role: "assistant",
-          order: 1,
-          timestamp: "2026-10-29T15:04:12Z",
-          textContent: "brief",
-        },
+        { ...message("skillhub-run-1-0001"), order: 1, timestamp: "2026-10-29T15:04:12Z" },
       ],
     });
 
     expect(result.isError).toBeUndefined();
     expect(result.structuredContent).toEqual({
+      ok: true,
       traceId: "trace-doc-1",
       externalId: "skillhub-run-1",
       namespace: "clay",
@@ -87,58 +85,80 @@ describe("traces_upsert", () => {
 
     const result = await tools.upsert({
       externalId: "skillhub-run-1",
-      messages: [
-        { externalId: "m-2", role: "user", textContent: "edit" },
-        { externalId: "m-3", role: "assistant", textContent: "sent email" },
-      ],
+      messages: [message("m-2"), message("m-3")],
     });
 
     expect(result.structuredContent).toEqual({
+      ok: true,
       traceId: null,
       externalId: "skillhub-run-1",
       namespace: "clay",
       appended: 2,
     });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.method).toBe("POST");
+    expect(calls.map(({ method }) => method)).toEqual(["POST"]);
   });
 
-  test("marks rate limits and server errors as retryable and keeps a known trace ID", async () => {
-    const { tools } = api([ok({ trace: { id: "trace-doc-1" } }), fail(503, "Unavailable")]);
+  test("writes nothing when the connection is bound to a different namespace", async () => {
+    const { calls, tools } = api([]);
 
     const result = await tools.upsert({
       externalId: "skillhub-run-1",
-      trace: { agentId: "skill-hub" },
-      messages: [{ externalId: "m-1", role: "assistant", textContent: "brief" }],
+      namespace: "acme",
+      trace,
+      messages: [message("m-1")],
     });
 
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({
+      ok: false,
+      error: { code: "namespace_mismatch", retryable: false },
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("marks rate limits and outages as retryable and keeps a trace ID already written", async () => {
+    const outage = await api([
+      ok({ trace: { id: "trace-doc-1" } }),
+      fail(503, "Unavailable"),
+    ]).tools.upsert({ externalId: "skillhub-run-1", trace, messages: [message("m-1")] });
+    expect(outage.isError).toBe(true);
+    expect(outage.structuredContent).toMatchObject({
+      ok: false,
       traceId: "trace-doc-1",
-      error: { retryable: true, status: 503 },
+      error: { code: "unavailable", retryable: true },
     });
 
     const limited = await api([fail(429, "Slow down")]).tools.upsert({
       externalId: "skillhub-run-1",
-      messages: [{ externalId: "m-1", role: "assistant", textContent: "brief" }],
+      messages: [message("m-1")],
     });
-    expect(limited.structuredContent).toMatchObject({ error: { retryable: true, status: 429 } });
+    expect(limited.structuredContent).toMatchObject({
+      error: { code: "rate_limited", retryable: true },
+    });
   });
 
-  test("marks permission and validation failures as permanent", async () => {
+  test("marks permission, missing-trace, and empty calls as permanent", async () => {
     const forbidden = await api([fail(403, "Missing scope")]).tools.upsert({
       externalId: "skillhub-run-1",
-      trace: { agentId: "skill-hub" },
+      trace,
+      messages: [],
     });
-    expect(forbidden.isError).toBe(true);
     expect(forbidden.structuredContent).toMatchObject({
-      error: { retryable: false, status: 403 },
+      error: { code: "forbidden", retryable: false },
+    });
+
+    const missing = await api([fail(404, "Trace not found")]).tools.upsert({
+      externalId: "skillhub-run-unknown",
+      messages: [message("m-1")],
+    });
+    expect(missing.structuredContent).toMatchObject({
+      error: { code: "not_found", retryable: false },
     });
 
     const { calls, tools } = api([]);
-    const empty = await tools.upsert({ externalId: "skillhub-run-1" });
+    const empty = await tools.upsert({ externalId: "skillhub-run-1", messages: [] });
     expect(empty.structuredContent).toMatchObject({
-      error: { message: "Provide trace fields, messages, or both.", retryable: false },
+      error: { code: "invalid_input", retryable: false },
     });
     expect(calls).toHaveLength(0);
   });

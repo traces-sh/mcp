@@ -112,7 +112,7 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
     {
       title: "Save Trace",
       description:
-        "Create or update a trace in this connection's namespace and append messages in one call. Traces are private by default and created by the connected user. Calls are idempotent on trace and message externalId, so retry any failure whose result has error.retryable set to true. Requires the traces:write scope.",
+        "Create or update a trace in this connection's namespace and append messages in one call. Traces are private by default and created by the connected user. Calls are idempotent on trace and message externalId. Failed results have ok: false and error.retryable; retry the same call only when retryable is true. Connections without write access are asked to approve it before the first save.",
       inputSchema: upsertInputSchema,
       annotations: {
         readOnlyHint: false,

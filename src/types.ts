@@ -11,6 +11,7 @@ export type NamespaceRef = { id: string; slug: string };
 
 export type SessionData = {
   activeNamespace: NamespaceRef;
+  session?: { scopes?: string[] };
 };
 
 export type SurfaceRef = { key: string };

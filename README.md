@@ -14,10 +14,10 @@ The production endpoint is:
 https://mcp.traces.com
 ```
 
-Authorize the client in the browser when it connects. The server supports `traces:read`,
-`surfaces:write`, and `traces:write` access, publishes OAuth protected-resource metadata at
-`/.well-known/oauth-protected-resource`, and validates bearer tokens against the Traces
-authorization server.
+Authorize the client in the browser when it connects. New connections ask for `traces:read` and
+`surfaces:write`; `traces:write` is requested only when a client first saves a trace. The server
+publishes OAuth protected-resource metadata at `/.well-known/oauth-protected-resource` and
+validates bearer tokens against the Traces authorization server.
 
 ### Install for detected coding agents
 
@@ -86,13 +86,15 @@ calls and results require explicit opt-in.
 
 ### `traces_upsert`
 
-Creates or updates a trace and appends messages in one call. Requires the `traces:write` scope.
-Pass `trace` fields on the first call (`agentId` is required); later calls can send only
-`messages`. Traces default to `private` and are created by the connected user.
+Creates or updates a trace and appends messages in one call. Pass `trace` fields on the first call
+(`agentId` is required); later calls can send only `messages`. Traces default to `private` and are
+created by the connected user. Pass `namespace` to make the call fail, writing nothing, unless the
+connection is bound to that namespace.
 
 ```json
 {
   "externalId": "skillhub-<runId>",
+  "namespace": "clay",
   "trace": { "agentId": "skill-hub", "title": "Call prep", "sourceCreatedAt": "2026-10-29T15:04:00Z" },
   "messages": [
     { "externalId": "skillhub-<runId>-0001", "role": "assistant", "order": 1, "textContent": "..." }
@@ -100,10 +102,14 @@ Pass `trace` fields on the first call (`agentId` is required); later calls can s
 }
 ```
 
-Returns `{ traceId, externalId, namespace, appended }`. `traceId` is `null` when the call only
-appends messages. Both the trace and its messages are keyed by `externalId`, so retrying a call
-never duplicates data. Failures return `{ error: { message, retryable, status } }`. Retry only when
-`retryable` is `true` (rate limits, server errors, and network failures).
+Success returns `{ ok: true, traceId, externalId, namespace, appended }`. `traceId` is `null` when
+the call only appends messages. Failure returns `{ ok: false, error: { code, message, retryable } }`.
+Both the trace and its messages are keyed by `externalId`, so retrying a call never duplicates data;
+retry only when `retryable` is `true` (`rate_limited` or `unavailable`).
+
+Saving needs the `traces:write` scope, which new connections do not get. The first save from a
+connection without it returns `403 insufficient_scope`; MCP clients such as Claude then ask the
+user to approve write access and retry.
 
 ### `traces_search_tools`
 

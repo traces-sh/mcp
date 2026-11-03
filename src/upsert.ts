@@ -1,4 +1,3 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { type TraceMessage, type TracesApiClient, TracesApiError } from "./api-client.js";
 
@@ -19,7 +18,9 @@ const traceSchema = z.object({
   visibility: z
     .enum(["private", "direct", "public"])
     .default("private")
-    .describe("Who can see the trace. Defaults to private: members of this namespace only."),
+    .describe(
+      "Who can see the trace. Defaults to private (namespace members only), and is applied every time trace fields are sent.",
+    ),
   sourceCreatedAt: timestampSchema.optional().describe("When the source session started."),
 });
 
@@ -45,6 +46,13 @@ export const upsertInputSchema = {
     .describe(
       "Stable trace ID chosen by the caller, such as skillhub-<runId>. Reuse it to append.",
     ),
+  namespace: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Expected namespace slug. When set, nothing is written unless this connection is bound to it.",
+    ),
   trace: traceSchema
     .optional()
     .describe(
@@ -53,19 +61,42 @@ export const upsertInputSchema = {
   messages: z.array(messageSchema).max(1000).default([]).describe("Messages to add or update."),
 };
 
-export type UpsertInput = {
-  externalId: string;
-  trace?: z.input<typeof traceSchema>;
-  messages?: z.input<typeof messageSchema>[];
-};
+/** Tool input after MCP validation, with defaults applied. */
+export type UpsertTraceInput = z.output<z.ZodObject<typeof upsertInputSchema>>;
 
-class UpsertInputError extends Error {}
+export type UpsertTraceErrorCode =
+  | "invalid_input"
+  | "namespace_mismatch"
+  | "unauthorized"
+  | "forbidden"
+  | "not_found"
+  | "rate_limited"
+  | "unavailable";
+
+export type UpsertTraceResult =
+  | {
+      ok: true;
+      /** Null when only messages were appended; the ID is returned by the call that sends `trace`. */
+      traceId: string | null;
+      externalId: string;
+      namespace: string;
+      appended: number;
+    }
+  | {
+      ok: false;
+      error: { code: UpsertTraceErrorCode; message: string; retryable: boolean };
+      externalId: string;
+      /** Set when the trace was written before a later step failed. */
+      traceId: string | null;
+    };
+
+const RETRYABLE: ReadonlySet<UpsertTraceErrorCode> = new Set(["rate_limited", "unavailable"]);
 
 function toMillis(value: number | string): number {
   return typeof value === "number" ? value : Date.parse(value);
 }
 
-function toApiMessage(message: z.input<typeof messageSchema>): TraceMessage {
+function toApiMessage(message: UpsertTraceInput["messages"][number]): TraceMessage {
   return {
     externalId: message.externalId,
     role: message.role,
@@ -75,75 +106,85 @@ function toApiMessage(message: z.input<typeof messageSchema>): TraceMessage {
   };
 }
 
-/** Rate limits, timeouts, server errors, and network failures can succeed on retry. */
-function isRetryable(error: unknown): boolean {
-  if (error instanceof UpsertInputError || error instanceof z.ZodError) return false;
-  if (!(error instanceof TracesApiError)) return true;
-  return error.status === 408 || error.status === 429 || error.status >= 500;
+function errorCode(error: unknown): UpsertTraceErrorCode {
+  if (!(error instanceof TracesApiError)) return "unavailable";
+  if (error.status === 401) return "unauthorized";
+  if (error.status === 403) return "forbidden";
+  if (error.status === 404) return "not_found";
+  if (error.status === 429) return "rate_limited";
+  if (error.status === 408 || error.status >= 500) return "unavailable";
+  return "invalid_input";
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof TracesApiError && error.status === 401) {
+function errorMessage(code: UpsertTraceErrorCode, error: unknown): string {
+  const detail = error instanceof Error ? error.message : "An unexpected error occurred.";
+  if (code === "unauthorized") {
     return "Traces rejected this connection's access token. Reconnect Traces and try again.";
   }
-  if (error instanceof TracesApiError && error.status === 403) {
-    return `${error.message} Reconnect Traces and approve write access if it was not granted.`;
+  if (code === "forbidden") {
+    return `${detail} Reconnect Traces and approve write access if it was not granted.`;
   }
-  return error instanceof Error ? error.message : "An unexpected error occurred.";
+  return detail;
 }
 
-function payloadResult(payload: Record<string, unknown>, isError = false): CallToolResult {
+function failure(
+  input: UpsertTraceInput,
+  traceId: string | null,
+  code: UpsertTraceErrorCode,
+  message: string,
+): UpsertTraceResult {
   return {
-    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
-    structuredContent: payload,
-    ...(isError ? { isError: true } : {}),
+    ok: false,
+    error: { code, message, retryable: RETRYABLE.has(code) },
+    externalId: input.externalId,
+    traceId,
   };
 }
 
 /**
- * Creates or updates a trace, then appends messages, in this connection's namespace.
- * Both steps are keyed by externalId, so retrying the whole call after any failure is safe.
+ * Creates or updates a trace (when `trace` is set), then appends `messages`, in the
+ * connection's namespace. Both steps are keyed by externalId, so retrying the whole
+ * call after any failure never duplicates data. Expected failures are returned, not thrown.
  */
-export async function upsertTrace(
+export async function upsertTraceWithMessages(
   api: TracesApiClient,
-  input: UpsertInput,
-): Promise<CallToolResult> {
+  input: UpsertTraceInput,
+): Promise<UpsertTraceResult> {
+  if (input.namespace !== undefined && input.namespace !== api.namespace.slug) {
+    return failure(
+      input,
+      null,
+      "namespace_mismatch",
+      `This connection writes to the ${api.namespace.slug} namespace, not ${input.namespace}. Reconnect Traces and choose ${input.namespace}.`,
+    );
+  }
+  if (!input.trace && input.messages.length === 0) {
+    return failure(input, null, "invalid_input", "Provide trace fields, messages, or both.");
+  }
+
   let traceId: string | null = null;
   try {
-    const parsed = z.object(upsertInputSchema).parse(input);
-    if (!parsed.trace && parsed.messages.length === 0) {
-      throw new UpsertInputError("Provide trace fields, messages, or both.");
-    }
-    if (parsed.trace) {
-      const { sourceCreatedAt, ...fields } = parsed.trace;
-      const trace = await api.upsertTrace(parsed.externalId, {
+    if (input.trace) {
+      const { sourceCreatedAt, ...fields } = input.trace;
+      const trace = await api.upsertTrace(input.externalId, {
         ...fields,
         ...(sourceCreatedAt !== undefined ? { sourceCreatedAt: toMillis(sourceCreatedAt) } : {}),
       });
       traceId = trace.id;
     }
     const appended =
-      parsed.messages.length > 0
-        ? await api.appendMessages(parsed.externalId, parsed.messages.map(toApiMessage))
+      input.messages.length > 0
+        ? await api.appendMessages(input.externalId, input.messages.map(toApiMessage))
         : 0;
-    return payloadResult({
+    return {
+      ok: true,
       traceId,
-      externalId: parsed.externalId,
+      externalId: input.externalId,
       namespace: api.namespace.slug,
       appended,
-    });
+    };
   } catch (error) {
-    return payloadResult(
-      {
-        error: {
-          message: errorMessage(error),
-          retryable: isRetryable(error),
-          ...(error instanceof TracesApiError ? { status: error.status } : {}),
-        },
-        externalId: input.externalId,
-        traceId,
-      },
-      true,
-    );
+    const code = errorCode(error);
+    return failure(input, traceId, code, errorMessage(code, error));
   }
 }
