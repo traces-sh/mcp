@@ -18,17 +18,62 @@ function bearerToken(request: Request): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 
+/** Scopes a new connection asks for. Clients request these instead of everything in `SUPPORTED_SCOPES`. */
+const INITIAL_SCOPES = ["traces:read", "surfaces:write"];
+const TRACES_WRITE = "traces:write";
+const SUPPORTED_SCOPES = [...INITIAL_SCOPES, TRACES_WRITE];
+
+/** Tools whose API routes need a scope that new connections do not get by default. */
+const STEP_UP_TOOLS: Record<string, string> = { traces_upsert: TRACES_WRITE };
+
 function unauthorized(resourceUrl: string, description?: string): Response {
   const metadataUrl = `${resourceUrl}/.well-known/oauth-protected-resource`;
   const attributes = [
     'Bearer realm="Traces MCP"',
     `resource_metadata="${metadataUrl}"`,
+    `scope="${INITIAL_SCOPES.join(" ")}"`,
     ...(description ? [`error="invalid_token"`, `error_description="${description}"`] : []),
   ];
   return new Response("Authentication required", {
     status: 401,
     headers: { "www-authenticate": attributes.join(", "), ...CORS_HEADERS },
   });
+}
+
+/**
+ * Asks the client to re-authorize with `scopes` (RFC 6750 `insufficient_scope`).
+ * MCP clients prompt the user, then retry the call with the new token.
+ */
+function insufficientScope(resourceUrl: string, scopes: string[]): Response {
+  const metadataUrl = `${resourceUrl}/.well-known/oauth-protected-resource`;
+  const attributes = [
+    'Bearer realm="Traces MCP"',
+    `error="insufficient_scope"`,
+    `scope="${scopes.join(" ")}"`,
+    `resource_metadata="${metadataUrl}"`,
+    `error_description="Saving traces needs write access"`,
+  ];
+  return new Response("Additional authorization required", {
+    status: 403,
+    headers: { "www-authenticate": attributes.join(", "), ...CORS_HEADERS },
+  });
+}
+
+/** The scope the request's tool calls need but the token lacks, if any. */
+async function missingToolScope(request: Request, scopes: string[]): Promise<string | undefined> {
+  if (request.method !== "POST") return undefined;
+  const body: unknown = await request
+    .clone()
+    .json()
+    .catch(() => undefined);
+  const messages = Array.isArray(body) ? body : [body];
+  for (const message of messages) {
+    const call = message as { method?: unknown; params?: { name?: unknown } } | undefined;
+    if (call?.method !== "tools/call" || typeof call.params?.name !== "string") continue;
+    const required = STEP_UP_TOOLS[call.params.name];
+    if (required && !scopes.includes(required)) return required;
+  }
+  return undefined;
 }
 
 type TokenValidation = SessionLookup;
@@ -100,7 +145,7 @@ export function createHttpHandler(options: HttpHandlerOptions) {
         {
           resource: options.publicUrl,
           authorization_servers: [options.authorizationServer],
-          scopes_supported: ["traces:read", "surfaces:write"],
+          scopes_supported: SUPPORTED_SCOPES,
           bearer_methods_supported: ["header"],
         },
         { headers: { "cache-control": "public, max-age=3600", ...CORS_HEADERS } },
@@ -125,6 +170,12 @@ export function createHttpHandler(options: HttpHandlerOptions) {
         status: 503,
         headers: CORS_HEADERS,
       });
+    }
+
+    // Unknown scopes mean the credential is unrestricted; the API still enforces scopes either way.
+    if (validation.scopes) {
+      const missing = await missingToolScope(request, validation.scopes);
+      if (missing) return insufficientScope(options.publicUrl, [...validation.scopes, missing]);
     }
 
     const server = buildServer(

@@ -7,6 +7,7 @@ import { formatLookup, formatTraceList, formatTraceRead } from "./format.js";
 import { SurfaceBuildInstructionsLoader } from "./surface-build-instructions.js";
 import { buildGuidance, latestTraceUrl } from "./surface-links.js";
 import type { ServerContext } from "./types.js";
+import { type UpsertTraceInput, upsertTraceWithMessages } from "./upsert.js";
 
 export const searchInputSchema = {
   projectName: z.string().min(1).optional().describe("Exact project name."),
@@ -204,6 +205,10 @@ export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fe
         "",
         instructions.markdown,
       ].join("\n");
+    },
+    upsert: async (input: UpsertTraceInput): Promise<CallToolResult> => {
+      const result = await upsertTraceWithMessages(api, input);
+      return { ...structuredResult(result), ...(result.ok ? {} : { isError: true }) };
     },
     searchTools: async (input: unknown): Promise<CallToolResult> => {
       try {
