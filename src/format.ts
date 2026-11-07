@@ -134,9 +134,17 @@ export function formatTraceRead(traceId: string, read: TraceRead): string {
           : event.toolName
             ? `${event.type}: ${event.toolName}`
             : (event.type ?? "Event");
-    lines.push(`## ${heading}`, "", eventContent(event), "");
+    const number = event.eventNumber === undefined ? "" : ` (event ${event.eventNumber})`;
+    lines.push(`## ${heading}${number}`, "", eventContent(event), "");
   }
 
-  if (read.truncated) lines.push("More matching events are available. Read another window.");
+  if (read.truncated) {
+    const { offset, returnedEvents } = read.range ?? {};
+    lines.push(
+      offset !== undefined && returnedEvents !== undefined
+        ? `More matching events are available. Continue with offset ${offset + returnedEvents}.`
+        : "More matching events are available. Read another window.",
+    );
+  }
   return lines.join("\n");
 }
