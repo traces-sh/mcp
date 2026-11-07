@@ -89,11 +89,20 @@ const surfacesUpdateSchema = z
     name: z.string().trim().min(1).optional(),
     description: z.string().nullable().optional(),
     icon: z.string().optional(),
+    currentVersion: z
+      .null()
+      .optional()
+      .describe(
+        "Pass null to unpublish: the surface keeps every uploaded version but has no current one, so it leaves the catalog until traces_surfaces_release_version. Releasing a version is done with traces_surfaces_release_version, not here.",
+      ),
   })
   .refine(
     (input) =>
-      input.name !== undefined || input.description !== undefined || input.icon !== undefined,
-    { message: "At least one metadata field is required." },
+      input.name !== undefined ||
+      input.description !== undefined ||
+      input.icon !== undefined ||
+      input.currentVersion !== undefined,
+    { message: "At least one field is required." },
   );
 
 const surfacesArchiveSchema = z.strictObject({ surface: surfaceRefSchema });
@@ -225,7 +234,7 @@ const catalogTools: CatalogTool[] = [
   ),
   catalogTool(
     "traces_surfaces_update",
-    "Update surface metadata only. Surface keys are immutable. This operation cannot change the current version, visibility, or archived state.",
+    "Update surface metadata, or unpublish by setting currentVersion to null. Surface keys are immutable. This operation cannot release a version, change visibility, or archive.",
     surfacesUpdateSchema,
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (api, input) => {
@@ -234,6 +243,7 @@ const catalogTools: CatalogTool[] = [
         name: parsed.name,
         description: parsed.description,
         icon: parsed.icon,
+        currentVersion: parsed.currentVersion,
       });
     },
   ),

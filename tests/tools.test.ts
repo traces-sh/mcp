@@ -214,6 +214,33 @@ describe("trace tools", () => {
     expect(output.structuredContent).toEqual(surface);
   });
 
+  test("update unpublishes a surface by clearing its current version", async () => {
+    const surface = { id: "surface-1", key: "overview", name: "Overview", currentVersion: null };
+    const patches: unknown[] = [];
+    const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith("/v1/namespaces/traces/surfaces")) {
+        return Response.json({ ok: true, data: { surfaces: [surface] } });
+      }
+      expect(String(input)).toBe("https://agent.traces.com/v1/surfaces/overview");
+      patches.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true, data: { updated: true } });
+    });
+
+    const output = await createToolHandlers(context, fetchImpl).executeTool({
+      name: "traces_surfaces_update",
+      arguments: { surface: { key: "overview" }, currentVersion: null },
+    });
+
+    expect(output.isError).toBeUndefined();
+    expect(patches).toEqual([{ currentVersion: null }]);
+
+    const rejected = await createToolHandlers(context, fetchImpl).executeTool({
+      name: "traces_surfaces_update",
+      arguments: { surface: { key: "overview" }, currentVersion: "1.0.0" },
+    });
+    expect(rejected.isError).toBe(true);
+  });
+
   test("formats catalog input errors as failed text results", async () => {
     const output = await createToolHandlers(context).executeTool({
       name: "traces_surfaces_archive",
