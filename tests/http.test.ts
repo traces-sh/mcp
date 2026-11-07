@@ -24,7 +24,7 @@ describe("HTTP transport", () => {
     expect(await response.json()).toEqual({
       resource: "https://mcp.traces.com",
       authorization_servers: ["https://auth.traces.com"],
-      scopes_supported: ["traces:read", "surfaces:write"],
+      scopes_supported: ["traces:read", "surfaces:write", "traces:write"],
       bearer_methods_supported: ["header"],
     });
   });
@@ -295,5 +295,106 @@ describe("HTTP transport", () => {
     );
 
     expect(response.status).toBe(503);
+  });
+});
+
+describe("write access step-up", () => {
+  const sessionWithScopes = (scopes: string[]) =>
+    Response.json({
+      ok: true,
+      data: {
+        activeNamespace: { id: "namespace-1", slug: "clay", role: "member" },
+        session: { id: "grant-1", scopes },
+      },
+    });
+
+  function callTool(handler: (request: Request) => Promise<Response>, name: string, args: unknown) {
+    return handler(
+      new Request("https://mcp.traces.com", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: "Bearer valid-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 7,
+          method: "tools/call",
+          params: { name, arguments: args },
+        }),
+      }),
+    );
+  }
+
+  const upsertArgs = {
+    externalId: "skillhub-run-1",
+    trace: { agentId: "skill-hub", title: "Call prep" },
+  };
+
+  test("new connections are asked only for read and surface access", async () => {
+    const response = await createHttpHandler(options)(
+      new Request("https://mcp.traces.com", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toContain(
+      'scope="traces:read surfaces:write"',
+    );
+  });
+
+  test("asks a read-only connection to approve write access before saving", async () => {
+    const fetchImpl = mock(async () => sessionWithScopes(["traces:read", "surfaces:write"]));
+    const handler = createHttpHandler({ ...options, fetchImpl });
+
+    const response = await callTool(handler, "traces_upsert", upsertArgs);
+
+    expect(response.status).toBe(403);
+    const challenge = response.headers.get("www-authenticate");
+    expect(challenge).toContain('error="insufficient_scope"');
+    expect(challenge).toContain('scope="traces:read surfaces:write traces:write"');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("lets a read-only connection keep using read tools", async () => {
+    const fetchImpl = mock(async () => sessionWithScopes(["traces:read"]));
+    const handler = createHttpHandler({ ...options, fetchImpl });
+
+    const response = await callTool(handler, "traces_search_tools", { query: "surface" });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("saves a private trace for a connection with write access", async () => {
+    const writes: { url: string; body: unknown }[] = [];
+    const fetchImpl = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/v1/session")) return sessionWithScopes(["traces:read", "traces:write"]);
+      writes.push({ url, body: JSON.parse(String(init?.body)) });
+      return Response.json({ ok: true, data: { trace: { id: "trace-doc-1" } } });
+    });
+    const handler = createHttpHandler({
+      ...options,
+      surfaceApiUrl: "https://actions.traces.com",
+      fetchImpl,
+    });
+
+    const response = await callTool(handler, "traces_upsert", upsertArgs);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.result.structuredContent).toEqual({
+      ok: true,
+      traceId: "trace-doc-1",
+      externalId: "skillhub-run-1",
+      namespace: "clay",
+      appended: 0,
+    });
+    expect(writes).toEqual([
+      {
+        url: "https://actions.traces.com/v1/traces/skillhub-run-1",
+        body: { agentId: "skill-hub", title: "Call prep", visibility: "private" },
+      },
+    ]);
   });
 });
