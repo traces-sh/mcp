@@ -10,21 +10,21 @@ import type { ServerContext } from "./types.js";
 import { type UpsertTraceInput, upsertTraceWithMessages } from "./upsert.js";
 
 export const searchInputSchema = {
-  projectName: z.string().min(1).optional().describe("Exact project name."),
-  projectPath: z.string().min(1).optional().describe("Project path prefix."),
-  createdByUserIds: z.array(z.string().min(1)).optional().describe("Traces creator IDs."),
+  projectName: z.string().min(1).nullish().describe("Exact project name."),
+  projectPath: z.string().min(1).nullish().describe("Project path prefix."),
+  createdByUserIds: z.array(z.string().min(1)).nullish().describe("Traces creator IDs."),
   since: z
     .string()
     .regex(/^\d+(ms|s|m|h|d|w)$/)
-    .optional()
+    .nullish()
     .describe("Relative session-start window, such as 24h, 7d, or 2w."),
   after: z
     .union([z.string(), z.number()])
-    .optional()
+    .nullish()
     .describe("Inclusive lower session-start bound."),
   before: z
     .union([z.string(), z.number()])
-    .optional()
+    .nullish()
     .describe("Exclusive upper session-start bound."),
   limit: z.number().int().min(1).max(200).default(20).describe("Maximum traces to return."),
 };
@@ -32,12 +32,12 @@ export const searchInputSchema = {
 export const readInputSchema = {
   traceId: z.string().min(1).describe("Trace external ID or Traces URL."),
   includeTools: z.boolean().default(false).describe("Include tool calls and tool results."),
-  offset: z.number().int().min(1).optional().describe("1-indexed event offset."),
+  offset: z.number().int().min(1).nullish().describe("1-indexed event offset."),
   limit: z.number().int().min(1).max(200).default(40).describe("Maximum events to return."),
-  aroundEvent: z.number().int().min(1).optional().describe("Center the window on an event."),
-  before: z.number().int().min(0).optional().describe("Events before aroundEvent."),
-  after: z.number().int().min(0).optional().describe("Events after aroundEvent."),
-  maxEventChars: z.number().int().min(100).max(10_000).optional(),
+  aroundEvent: z.number().int().min(1).nullish().describe("Center the window on an event."),
+  before: z.number().int().min(0).nullish().describe("Events before aroundEvent."),
+  after: z.number().int().min(0).nullish().describe("Events after aroundEvent."),
+  maxEventChars: z.number().int().min(100).max(10_000).nullish(),
 };
 
 export const lookupInputSchema = {
@@ -45,16 +45,36 @@ export const lookupInputSchema = {
   query: z
     .string()
     .min(1)
-    .optional()
+    .nullish()
     .describe("Case-insensitive display-name query, matched within this connection's namespace."),
-  id: z.string().min(1).optional().describe("Exact entity ID. Use this to humanize an opaque ID."),
+  id: z.string().min(1).nullish().describe("Exact entity ID. Use this to humanize an opaque ID."),
   slug: z
     .string()
     .min(1)
-    .optional()
+    .nullish()
     .describe("Exact slug. Valid for namespaces and registered agents, not users."),
   limit: z.number().int().min(1).max(50).default(10).describe("Maximum matches to return."),
 };
+
+type ReadInput = {
+  traceId: string;
+  includeTools?: boolean | null;
+  offset?: number | null;
+  limit?: number | null;
+  aroundEvent?: number | null;
+  before?: number | null;
+  after?: number | null;
+  maxEventChars?: number | null;
+};
+
+type WithoutNulls<T> = { [K in keyof T]: Exclude<T[K], null> };
+
+/** MCP clients often send null for omitted optional arguments; treat it as absent. */
+function withoutNulls<T extends Record<string, unknown>>(input: T): WithoutNulls<T> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== null),
+  ) as WithoutNulls<T>;
+}
 
 export function normalizeTraceId(input: string): string {
   const trimmed = input.trim();
@@ -159,18 +179,12 @@ export function createToolHandlers(context: ServerContext, fetchImpl: Fetch = fe
     fetchImpl,
   );
   return {
-    search: async (input: Record<string, unknown>) => formatTraceList(await api.list(input)),
-    lookup: async (input: Record<string, unknown>) => formatLookup(await api.lookup(input)),
-    read: async (input: {
-      traceId: string;
-      includeTools?: boolean;
-      offset?: number;
-      limit?: number;
-      aroundEvent?: number;
-      before?: number;
-      after?: number;
-      maxEventChars?: number;
-    }) => {
+    search: async (input: Record<string, unknown>) =>
+      formatTraceList(await api.list(withoutNulls(input))),
+    lookup: async (input: Record<string, unknown>) =>
+      formatLookup(await api.lookup(withoutNulls(input))),
+    read: async (rawInput: ReadInput) => {
+      const input = withoutNulls(rawInput);
       const traceId = normalizeTraceId(input.traceId);
       const eventTypes = input.includeTools
         ? ["user_message", "agent_text", "tool_call", "tool_result"]

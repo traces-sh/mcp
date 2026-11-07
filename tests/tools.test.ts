@@ -165,6 +165,52 @@ describe("trace tools", () => {
     expect(output).toContain("Help me");
   });
 
+  test("numbers events and names the next offset when more events remain", async () => {
+    const fetchImpl = mock(async () =>
+      Response.json({
+        ok: true,
+        data: {
+          reads: [
+            {
+              trace: { title: "Example" },
+              events: [
+                { eventNumber: 3, type: "user_message", content: "Help me" },
+                { eventNumber: 7, type: "agent_text", content: "Sure" },
+              ],
+              range: { totalEvents: 30, returnedEvents: 2, offset: 4, limit: 2 },
+              truncated: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    const output = await createToolHandlers(context, fetchImpl).read({
+      traceId: "trace-123",
+      offset: 4,
+      limit: 2,
+    });
+
+    expect(output).toContain("## User (event 3)");
+    expect(output).toContain("## Agent (event 7)");
+    expect(output).toContain("Continue with offset 6.");
+  });
+
+  test("treats null optional arguments as omitted", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        ok: true,
+        data: { kind: "user", results: [], ambiguous: false, truncated: false },
+      });
+    });
+
+    await createToolHandlers(context, fetchImpl).lookup({ kind: "user", query: "Kara", id: null });
+
+    expect(bodies).toEqual([{ kind: "user", query: "Kara", namespaceId: "namespace-1" }]);
+  });
+
   test("discovers surface catalog operations incrementally", async () => {
     const output = await createToolHandlers(context).searchTools({ query: "surface release" });
 

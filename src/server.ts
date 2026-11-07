@@ -66,7 +66,7 @@ export function buildServer(context: ServerContext, fetchImpl: Fetch = fetch): M
     {
       title: "Lookup Traces Entities",
       description:
-        "Resolve a visible person, namespace, or registered agent into canonical IDs and human-readable metadata. User name queries require namespaceId; global user and email lookup are unavailable.",
+        "Resolve a visible person, namespace, or registered agent into canonical IDs and human-readable metadata. User name queries match display names and handles within this connection's namespace; global user and email lookup are unavailable.",
       inputSchema: lookupInputSchema,
       annotations: {
         readOnlyHint: true,
